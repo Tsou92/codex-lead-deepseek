@@ -1,0 +1,15 @@
+{
+  "runtime_version": "0.1.7-alpha.2",
+  "node": "auto",
+  "credentials_path": "~/.dsh/.credentials.yaml",
+  "provider": "deepseek-official",
+  "model": "deepseek-flash",
+  "reasoning_effort": "low",
+  "timeout_seconds": 600,
+  "result_max_chars": 2500,
+  "max_log_bytes": 33554432,
+  "max_parallel_runs": 2,
+  "max_tool_calls": 32,
+  "max_search_calls": 3,
+  "max_fetch_calls": 5
+}

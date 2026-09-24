@@ -1,0 +1,24 @@
+{
+  "goal": "实现 clamp(value, lower, upper)，将值限制在闭区间；lower > upper 时抛 ValueError。只修改 math_utils.py，运行测试。",
+  "workspace": "/absolute/path/to/project",
+  "mode": "edit",
+  "read_paths": [
+    "test_math_utils.py"
+  ],
+  "write_paths": [
+    "math_utils.py"
+  ],
+  "checks": [
+    [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "-v",
+      "test_math_utils.py"
+    ]
+  ],
+  "subagents": 0,
+  "timeout_seconds": 180,
+  "result_max_chars": 1200
+}

@@ -1,0 +1,8 @@
+{
+  "goal": "对以下列表执行确定性的内容处理：去掉每个元素首尾空白，转换为小写，保持首次出现顺序去重。只输出 JSON 数组，不带代码围栏或说明。输入：[\" Apple \", \"BANANA\", \"apple\", \" pear\", \"banana \", \"PEAR\", \" Kiwi \"]",
+  "workspace": "/absolute/path/to/project",
+  "mode": "process",
+  "subagents": 0,
+  "timeout_seconds": 90,
+  "result_max_chars": 500
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex 总管 · DeepSeek 执行"
+  short_description: "Codex 统筹验收，DeepSeek 默认处理代码、数据、内容和其他常规执行"
+  default_prompt: "使用 $deepseek-delegate，Codex 统筹并自动验收，将明确可核验的执行交给 DeepSeek，必要时自主返工并继续，直到完成交付。"
+policy:
+  allow_implicit_invocation: true

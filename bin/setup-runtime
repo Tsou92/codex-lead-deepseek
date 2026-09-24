@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Install exactly the reviewed Harness version; never silently upgrade it."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root / "src"))
+from leadseek.configuration import load_config
+
+RUNTIME_VERSION = "0.1.7-alpha.2"
+
+config = load_config(root)
+node = Path(config["node"])
+env = os.environ.copy()
+env["PATH"] = str(node.parent) + os.pathsep + env.get("PATH", "")
+subprocess.run(["npm", "install", "--prefix", str(root / "runtime"), "--cache", str(root / ".state/npm-cache"),
+                "--no-audit", "--no-fund", "--save-exact", "@deepseek-ai/dsh@" + RUNTIME_VERSION],
+               env=env, check=True)

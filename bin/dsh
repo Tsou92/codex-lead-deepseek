@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Run the pinned DeepSeek Harness CLI with this project's node and runtime.
+
+Arguments are passed straight through.  A project-local ``--patch`` is injected
+so the interactive ``web`` command and the headless runner read the same
+credentials store (``credentials_path`` from config.json / config.local.json).
+The wrapper never starts anything by itself, reads no credentials and never
+dumps configuration.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root / "src"))
+from leadseek.configuration import RUNTIME_CLI, load_config
+
+
+def credentials_patch(config):
+    """The only patch entry we own: point the CLI at the configured store."""
+    return [{"id": "credentials", "config": {"path": config["credentials_path"], "watch": False}}]
+
+
+def write_credentials_patch(root, config, path=None):
+    """Write the credentials-only patch inside the project and return its path."""
+    path = Path(path) if path is not None else Path(root) / ".state" / "dsh-credentials-patch.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(credentials_patch(config), ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return path
+
+
+def build_command(root, config, patch_path, argv):
+    """Build the argv vector; an explicit user ``--patch`` is left untouched."""
+    root = Path(root)
+    command = [config["node"], str(root / RUNTIME_CLI)]
+    if "--patch" not in argv:
+        command += ["--patch", str(patch_path)]
+    return command + list(argv)
+
+
+def main(argv):
+    config = load_config(root)
+    cli = root / RUNTIME_CLI
+    if not cli.is_file():
+        print("Harness 运行时缺失；请先运行 bin/setup", file=sys.stderr)
+        return 1
+    patch_path = write_credentials_patch(root, config)
+    env = os.environ.copy()
+    temporary = root / ".state/tmp"
+    temporary.mkdir(parents=True, exist_ok=True)
+    env.update({"DSH_HOME": str(root / ".state/harness-home"), "DSH_TELEMETRY_DISABLED": "1",
+                "DSH_TELEMETRY_MODE": "DISABLED", "TMPDIR": str(temporary)})
+    env["PATH"] = str(Path(config["node"]).parent) + os.pathsep + env.get("PATH", "")
+    command = build_command(root, config, patch_path, argv)
+    try:
+        return subprocess.run(command, env=env, cwd=str(root)).returncode
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

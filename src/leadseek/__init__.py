@@ -1,0 +1,3 @@
+"""Codex leads; DeepSeek executes bounded tasks."""
+
+__version__ = "1.0.0"

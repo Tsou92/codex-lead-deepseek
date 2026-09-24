@@ -1,0 +1,8 @@
+{
+  "goal": "用一次 web_search 查找 Python 官方文档对 sorted() 稳定性的说明，必要时读取一个官方页面。返回一个官方链接、两句事实摘要；找不到则说明，不要推测。",
+  "workspace": "/absolute/path/to/project",
+  "mode": "research",
+  "subagents": 0,
+  "timeout_seconds": 180,
+  "result_max_chars": 1200
+}

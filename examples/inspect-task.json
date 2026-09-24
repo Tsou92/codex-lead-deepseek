@@ -1,0 +1,9 @@
+{
+  "goal": "阅读 math_utils.py，说明当前行为和缺失的实现，150字以内；不修改文件。",
+  "workspace": "/absolute/path/to/project",
+  "mode": "inspect",
+  "read_paths": [
+    "math_utils.py"
+  ],
+  "subagents": 0
+}
