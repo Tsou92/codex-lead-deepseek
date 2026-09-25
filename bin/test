@@ -15,3 +15,5 @@ env = {**os.environ, "PYTHONPATH": str(root / "src"), "PYTHONDONTWRITEBYTECODE":
 subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-v"], cwd=root, env=env, check=True)
 node = load_config(root)["node"]
 subprocess.run([node, str(root / "tests/test_budget.mjs")], cwd=root, env=env, check=True)
+subprocess.run([node, str(root / "tests/test_observe.mjs")], cwd=root, env=env, check=True)
+subprocess.run([node, str(root / "tests/test_monitor_history.mjs")], cwd=root, env=env, check=True)

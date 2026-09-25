@@ -14,6 +14,11 @@ from .journal import record, list_recent
 
 
 def main(argv=None):
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == "monitor":
+        from .monitor_cli import main as monitor_main
+
+        return monitor_main(raw[1:])
     parser = argparse.ArgumentParser(prog="leadseek", description="Codex 统筹，DeepSeek 默认执行；限定任务、精简回传、自动验收返工。")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)

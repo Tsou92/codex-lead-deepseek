@@ -1,4 +1,5 @@
 .state/
+.monitor-context/
 runtime/node_modules/
 node_modules/
 config.local.json*

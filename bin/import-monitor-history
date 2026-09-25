@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Recover saved Harness sessions into monitor telemetry (offline, local only).
+
+This is a thin standard-library wrapper: it asks
+:mod:`leadseek.configuration` for the project's Node 24 binary, then runs
+``scripts/import-monitor-history.mjs`` for every finished historical run.  It
+never touches the network, credentials or the live Harness.
+"""
+import argparse
+from pathlib import Path
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root / "src"))
+from leadseek.configuration import load_config  # noqa: E402
+
+SCRIPT = Path("scripts") / "import-monitor-history.mjs"
+
+
+def build_command(config, base, run_id=None):
+    command = [config["node"], str(Path(base) / SCRIPT), "--root", str(base)]
+    if run_id:
+        command += ["--run-id", run_id]
+    return command
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="import-monitor-history",
+        description="把本机保存的 Harness 压缩会话恢复为监控可读的 telemetry.jsonl（离线）。",
+    )
+    parser.add_argument("--run-id", default=None, help="只导入指定的一个历史 run；默认处理全部历史 run")
+    parser.add_argument("--root", default=None, help="项目根目录，默认取本脚本所在仓库根目录")
+    args = parser.parse_args(argv)
+
+    base = Path(args.root).resolve() if args.root else root
+    try:
+        config = load_config(base)
+    except ValueError as error:
+        print(f"无法加载配置: {error}", file=sys.stderr)
+        return 2
+    script = base / SCRIPT
+    if not script.is_file():
+        print(f"缺少导入脚本: {script}", file=sys.stderr)
+        return 2
+    command = build_command(config, base, args.run_id)
+    try:
+        return subprocess.run(command, cwd=str(base)).returncode
+    except OSError as error:
+        print(f"无法执行 Node: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

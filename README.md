@@ -107,7 +107,23 @@ PY
 
 更多命令、任务 JSON 格式与预算边界见 [`使用说明.md`](使用说明.md) 与 [`skill/deepseek-delegate/SKILL.md`](skill/deepseek-delegate/SKILL.md)。
 
+## 本机只读监控
+
+仓库根目录运行 `./bin/monitor`（默认等价于 `start`），或双击 `打开监控.command`，会只在 `127.0.0.1:8765` 启动只读监控并打开系统浏览器：
+
+```sh
+./bin/monitor start [--port 8765] [--no-open]
+./bin/monitor open | status | stop
+./bin/monitor link --thread-id <UUID> --workspace /绝对路径
+```
+
+页面从本机 `.state/` 的公开记录读取：任务运行、下发指令、Codex 审核与返工、执行会话、工具调用、子代理、文件改动和 token，并可按已关联的 Codex 会话查看公开消息与调用。DeepSeek 用量只统计已采集到的（含子代理）事件，Codex 会话按去重后的整会话累计展示，两者口径不同、不能相加；未采集的显示未知而不是 0。数据只在本机读取、不上传，服务没有任何写入 API；令牌只出现在本机启动 URL，运行期文件在 `.state/monitor/`（0600/0700）。
+
+页面只展示公开事件和记录，不包含隐藏思考、加密内容或 system/developer 指令，也不对账单精确度或历史子代理数据补全作承诺。Codex 仍用 `route`/`apply`/`revise` 留下真实的分工、审核与验收依据。
+
 ## 更新
+
+旧任务如果还保存有 Harness 压缩会话，可在仓库目录运行 `./bin/import-monitor-history` 离线恢复主代理与子代理的公开事件；已有采集记录不会被覆盖。详见 [历史记录恢复](docs/monitor-history.md)。
 
 ```sh
 git pull
