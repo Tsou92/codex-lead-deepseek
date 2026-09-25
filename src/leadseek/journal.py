@@ -9,12 +9,17 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Union
 
-__all__ = ["record", "list_recent"]
+__all__ = ["record", "list_recent", "effective_codex_thread_id"]
+
+_CODEX_UUID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 _OWNERS = frozenset({"codex", "deepseek"})
 _REASON_MAX = 2000
@@ -35,6 +40,23 @@ def _canonical_workspace(workspace: Union[str, Path]) -> str:
     if not path.is_absolute():
         raise ValueError("workspace must be an absolute path")
     return os.path.realpath(str(path))
+
+
+def effective_codex_thread_id(environ=None) -> Optional[str]:
+    """Return the environment's valid Codex thread UUID, or ``None``.
+
+    Only the effective ``CODEX_THREAD_ID`` string is consulted; anything that
+    is absent, blank, or not a canonical UUID is treated as "not recorded".
+    """
+    if environ is None:
+        environ = os.environ
+    value = environ.get("CODEX_THREAD_ID")
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if not _CODEX_UUID.fullmatch(candidate):
+        return None
+    return candidate.lower()
 
 
 def _require_text(value: object, field: str) -> str:
@@ -81,6 +103,7 @@ def record(
         "action": action,
         "reason": reason,
         "run_id": run_id,
+        "codex_thread_id": effective_codex_thread_id(),
     }
 
     path = _log_path(root)

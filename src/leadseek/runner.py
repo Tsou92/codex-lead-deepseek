@@ -16,7 +16,7 @@ import uuid
 from . import configuration
 from .events import reduce_events
 from .workspace import prepare, collect_changes, carry_revision
-from .journal import record
+from .journal import record, effective_codex_thread_id
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +37,22 @@ def write_json(path, value):
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def write_context(directory, config, previous_run_id=None):
+    """Record the Codex association and effective route for one run.
+
+    Compatibility: when ``CODEX_THREAD_ID`` is absent or invalid the field is
+    ``null`` and the run proceeds unchanged.
+    """
+    context = {
+        "codex_thread_id": effective_codex_thread_id(),
+        "previous_run_id": previous_run_id,
+        "model": config["model"],
+        "provider": config["provider"],
+    }
+    write_json(Path(directory) / "context.json", context)
+    return context
 
 
 def run_path(run_id):
@@ -134,11 +150,16 @@ def patch_for(task, config, directory=None):
     for plugin in ("tool-subagent-fork", "tool-workflow", "workflow-ptc", "tool-goal", "session-title-llm", "session-log-deepseek", "plugin-package-inventory-deepseek", "tool-plugin-manager", "skill-filesystem", "tool-skill"):
         patch.append({"id": plugin, "disabled": True})
     if directory:
-        patch.append({"insert": [{"id": "leadseek-budget", "name": str(ROOT / "plugins/budget.mjs"),
-            "required": True,
-            "config": {"maxToolCalls": config["max_tool_calls"], "maxSearchCalls": config["max_search_calls"],
-                       "maxFetchCalls": config["max_fetch_calls"], "maxSubagentStarts": children,
-                       "receiptPath": str(directory / "budget.json")}}]})
+        patch.append({"insert": [
+            {"id": "leadseek-budget", "name": str(ROOT / "plugins/budget.mjs"),
+             "required": True,
+             "config": {"maxToolCalls": config["max_tool_calls"], "maxSearchCalls": config["max_search_calls"],
+                        "maxFetchCalls": config["max_fetch_calls"], "maxSubagentStarts": children,
+                        "receiptPath": str(directory / "budget.json")}},
+            {"id": "leadseek-observe", "name": str(ROOT / "plugins/observe.mjs"),
+             "required": True,
+             "config": {"telemetryPath": str(directory / "telemetry.jsonl")}},
+        ]})
     return patch
 
 
@@ -259,6 +280,7 @@ def run_task(data, previous_run_id=None):
             if previous_run_id:
                 carry_revision(run_path(previous_run_id), directory, task)
             write_json(directory / "task.json", task)
+            write_context(directory, config, previous_run_id)
             write_json(directory / "patch.json", patch_for(task, config, directory))
             prompt = build_prompt(task, config)
             (directory / "prompt.txt").write_text(prompt, encoding="utf-8")
