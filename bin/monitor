@@ -1,0 +1,9 @@
+#!/bin/sh
+# Launch the local read-only task monitor. Default subcommand is "start".
+set -e
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH= cd -- "$DIR/.." && pwd)
+if [ "$#" -eq 0 ]; then
+  set -- start
+fi
+PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -B -m leadseek.monitor_cli "$@"

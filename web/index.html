@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>本机任务监控工作台</title>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="topbar-row">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">监</span>
+        <div class="brand-text">
+          <strong>本机任务监控</strong>
+          <span class="brand-sub">Codex 下发 · DeepSeek 执行</span>
+        </div>
+      </div>
+
+      <div class="top-status" role="group" aria-label="连接状态">
+        <span id="conn-status" class="conn-status">连接中…</span>
+        <span id="last-updated" class="muted last-updated">尚未更新</span>
+      </div>
+
+      <button id="refresh-toggle" class="btn refresh-toggle" type="button" aria-pressed="true">自动刷新：开</button>
+    </div>
+
+    <div class="topbar-row topbar-metrics">
+      <div class="counters" role="group" aria-label="任务运行统计">
+        <span class="count-item"><b id="count-total" class="count-num">未记录</b><span>任务</span></span>
+        <span class="count-item count-running"><b id="count-running" class="count-num">未记录</b><span>运行中</span></span>
+        <span class="count-item count-review-pending"><b id="count-review-pending" class="count-num">未记录</b><span>待审核</span></span>
+        <span class="count-item count-accepted"><b id="count-accepted" class="count-num">未记录</b><span>已采纳</span></span>
+        <span class="count-item count-failed"><b id="count-failed" class="count-num">未记录</b><span>失败</span></span>
+      </div>
+
+      <div class="usage-summaries" role="group" aria-label="用量汇总">
+        <div id="ds-usage-summary" class="usage-summary usage-ds" aria-label="DeepSeek 已记录 token">DeepSeek 已记录：未记录</div>
+        <div id="codex-usage-summary" class="usage-summary usage-codex" aria-label="Codex 会话累计 token">Codex 会话累计：未记录</div>
+      </div>
+    </div>
+  </header>
+
+  <div id="error-banner" class="error-banner" role="alert" hidden>
+    <span id="error-text" class="error-text"></span>
+    <button id="error-retry" class="btn btn-small" type="button">重试</button>
+  </div>
+
+  <details id="overview-warnings" class="overview-warnings" hidden></details>
+
+  <div class="workspace">
+
+    <nav class="sidenav" aria-label="视图导航">
+      <button class="nav-item is-active" type="button" data-view="tasks" aria-current="page">任务</button>
+      <button class="nav-item" type="button" data-view="codex">Codex 会话</button>
+      <button class="nav-item" type="button" data-view="decisions">全局决策</button>
+    </nav>
+
+    <section class="task-pane" aria-label="任务列表">
+      <div class="filters">
+        <input id="search-input" class="search-input" type="search" placeholder="搜索任务、目标、run_id…" aria-label="搜索任务" autocomplete="off">
+        <div class="filter-row">
+          <select id="workspace-filter" class="filter-select" aria-label="工作区">
+            <option value="">全部工作区</option>
+          </select>
+          <select id="status-filter" class="filter-select" aria-label="执行状态">
+            <option value="">全部执行状态</option>
+            <option value="running">运行中</option>
+            <option value="completed">执行完成</option>
+            <option value="failed">失败</option>
+            <option value="pending">等待中</option>
+            <option value="queued">排队中</option>
+            <option value="cancelled">已取消</option>
+            <option value="interrupted">已中断</option>
+            <option value="needs_attention">需处理</option>
+            <option value="preparing">准备中</option>
+            <option value="scope_violation">越界改动</option>
+            <option value="timed_out">超时</option>
+            <option value="log_limit_exceeded">日志达上限</option>
+          </select>
+        </div>
+      </div>
+      <div id="run-list-status" class="list-status muted" role="status" aria-live="polite">加载中…</div>
+      <div id="run-list" class="run-list" role="list"></div>
+      <button id="load-more-runs" class="btn load-more" type="button" hidden>加载更多任务</button>
+    </section>
+
+    <section class="detail-pane" aria-label="任务详情">
+
+      <div id="detail-empty" class="detail-empty">请选择左侧任务查看详情</div>
+
+      <div id="detail-content" class="detail-content" hidden>
+        <header class="detail-head">
+          <h2 id="detail-title" class="detail-title">未选择任务</h2>
+          <div id="detail-badges" class="detail-badges"></div>
+          <div id="detail-meta" class="kv-grid detail-meta"></div>
+        </header>
+
+        <div class="tablist" role="tablist" aria-label="任务详情页签">
+          <button class="tab-btn is-active" type="button" role="tab" data-tab="overview" aria-selected="true">概览</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="prompt" aria-selected="false">下发指令</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="review" aria-selected="false">Codex 审核</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="events" aria-selected="false">执行会话</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="agents" aria-selected="false">子代理</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="changes" aria-selected="false">文件改动</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="token" aria-selected="false">Token</button>
+        </div>
+
+        <div id="panel-overview" class="tab-panel is-active" role="tabpanel" aria-label="概览"></div>
+        <div id="panel-prompt" class="tab-panel" role="tabpanel" aria-label="下发指令" hidden></div>
+        <div id="panel-review" class="tab-panel" role="tabpanel" aria-label="Codex 审核" hidden></div>
+        <div id="panel-events" class="tab-panel" role="tabpanel" aria-label="执行会话" hidden></div>
+        <div id="panel-agents" class="tab-panel" role="tabpanel" aria-label="子代理" hidden></div>
+        <div id="panel-changes" class="tab-panel" role="tabpanel" aria-label="文件改动" hidden></div>
+        <div id="panel-token" class="tab-panel" role="tabpanel" aria-label="Token" hidden></div>
+      </div>
+
+      <div id="global-view" class="global-view" hidden>
+        <h2 id="global-view-title" class="detail-title"></h2>
+        <div id="global-warnings" class="warnings"></div>
+        <div id="global-view-body" class="global-view-body"></div>
+      </div>
+
+    </section>
+  </div>
+</div>
+
+<aside id="codex-drawer" class="codex-drawer" role="dialog" aria-modal="true" aria-labelledby="codex-drawer-title" hidden>
+  <header class="codex-drawer-head">
+    <h2 id="codex-drawer-title" class="codex-drawer-title">Codex 会话</h2>
+    <button id="codex-close" class="btn btn-small" type="button">关闭</button>
+  </header>
+  <div class="codex-drawer-actions">
+    <button id="codex-latest" class="btn btn-small" type="button">查看最新记录</button>
+    <button id="codex-from-start" class="btn btn-small" type="button">从头查看</button>
+  </div>
+  <div id="codex-meta" class="kv-grid codex-meta"></div>
+  <div id="codex-status" class="codex-status list-status muted" role="status" aria-live="polite">未加载</div>
+  <div id="codex-items" class="codex-items event-list"></div>
+  <button id="codex-load-more" class="btn load-more" type="button" hidden>加载更多公开消息</button>
+</aside>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
