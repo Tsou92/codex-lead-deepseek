@@ -1,6 +1,9 @@
 .state/
 .monitor-context/
-runtime/node_modules/
+.portable/
+bundled/
+dist/
+runtime/
 node_modules/
 config.local.json*
 .env

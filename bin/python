@@ -1,0 +1,62 @@
+#!/bin/sh
+# Portable Python entry: prefer .portable/python, then a system Python >= 3.9.
+# This launcher never downloads anything; when no interpreter is usable it
+# points at the project's one-click installer.  Symlinks are resolved so the
+# entry keeps working from any location, including paths with spaces.
+set -u
+
+script="$0"
+while [ -L "$script" ]; do
+  link=$(readlink "$script")
+  case "$link" in
+    /*) script="$link" ;;
+    *) case "$script" in
+         */*) script="${script%/*}/$link" ;;
+         *) script="$link" ;;
+       esac ;;
+  esac
+done
+case "$script" in
+  */*) BIN_DIR=${script%/*} ;;
+  *) BIN_DIR=. ;;
+esac
+BIN_DIR=$(cd -P "$BIN_DIR" >/dev/null 2>&1 && pwd)
+ROOT=$(cd -P "$BIN_DIR/.." >/dev/null 2>&1 && pwd)
+
+usable() {
+  candidate="$1"
+  [ -f "$candidate" ] || return 1
+  [ -x "$candidate" ] || return 1
+  case "$candidate" in
+    /usr/bin/python3)
+      # The stub triggers the Command Line Tools installer; only trust it when
+      # the tools are actually present.
+      command -v xcode-select >/dev/null 2>&1 || return 1
+      xcode-select -p >/dev/null 2>&1 || return 1
+      ;;
+  esac
+  "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 9) else 1)' >/dev/null 2>&1
+}
+
+PY=""
+for candidate in "$ROOT/.portable/python/bin/python3" "$ROOT/.portable/python/bin/python"; do
+  if usable "$candidate"; then
+    PY="$candidate"
+    break
+  fi
+done
+if [ -z "$PY" ]; then
+  for name in python3 python; do
+    found=$(command -v "$name" 2>/dev/null || true)
+    if [ -n "$found" ] && usable "$found"; then
+      PY="$found"
+      break
+    fi
+  done
+fi
+if [ -z "$PY" ]; then
+  echo "找不到可用的 Python 3.9+：项目便携解释器尚未安装。" >&2
+  echo "请双击项目根目录的一键安装 .command（或运行 bin/bootstrap）后再试。" >&2
+  exit 127
+fi
+exec "$PY" "$@"

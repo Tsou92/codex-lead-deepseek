@@ -26,6 +26,7 @@ class InstallTests(unittest.TestCase):
     def test_install_is_idempotent_and_uninstall_keeps_user_rules(self):
         install.integrate(self.home)
         first = self.agents.read_text()
+        self.assertIn("leadseek activate", first)
         install.integrate(self.home)
         self.assertEqual(self.agents.read_text(), first)
         self.assertTrue((self.home / ".local/bin/leadseek").is_symlink())

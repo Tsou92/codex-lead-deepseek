@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG_NAME = "config.json"
 LOCAL_CONFIG_NAME = "config.local.json"
 RUNTIME_CLI = Path("runtime/node_modules/@deepseek-ai/dsh/lib/bin.js")
+PORTABLE_NODE = Path(".portable") / "node" / "bin" / "node"
 NODE24_CANDIDATES = (
     "/opt/homebrew/opt/node@24/bin/node",
     "/usr/local/opt/node@24/bin/node",
@@ -24,6 +25,20 @@ NODE_HINT = "请安装 Node 24，或用 bin/setup --node /path/to/node 指定可
 
 def default_root():
     return ROOT
+
+
+def _is_executable(path):
+    path = Path(path)
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def portable_node(root=None):
+    """Return the project-local portable Node binary when it is installed."""
+    base = ROOT if root is None else Path(root)
+    candidate = Path(base) / PORTABLE_NODE
+    if _is_executable(candidate):
+        return str(candidate.absolute())
+    return None
 
 
 def read_config_file(path):
@@ -49,12 +64,15 @@ def merge_config(base, override):
     return merged
 
 
-def find_node(environ=None, candidates=NODE24_CANDIDATES):
-    """Prefer a local Node 24 path, then whatever ``node`` is on PATH."""
+def find_node(environ=None, candidates=NODE24_CANDIDATES, root=None):
+    """Prefer the project portable Node, then local Node 24 paths, then PATH."""
     environ = os.environ if environ is None else environ
+    local = portable_node(root)
+    if local:
+        return local
     for candidate in candidates:
         path = Path(candidate)
-        if path.is_file() and os.access(path, os.X_OK):
+        if _is_executable(path):
             return str(path.absolute())
     found = shutil.which("node", path=environ.get("PATH", ""))
     if found:
@@ -62,15 +80,16 @@ def find_node(environ=None, candidates=NODE24_CANDIDATES):
     raise ValueError("找不到 Node 24；" + NODE_HINT)
 
 
-def resolve_node(value, environ=None, candidates=NODE24_CANDIDATES):
+def resolve_node(value, environ=None, candidates=NODE24_CANDIDATES, root=None):
     """Resolve ``auto`` or an explicit absolute path/command name to a node binary.
 
-    The returned path is always absolute, so a later change of the working
-    directory or PATH cannot invalidate the recorded value.
+    ``auto`` prefers the project's ``.portable/node`` when ``root`` is known (or
+    the checkout root by default).  An explicit value from ``config.local.json``
+    is always honoured, so an old local ``node`` keeps working.
     """
     environ = os.environ if environ is None else environ
     if value is None or value == "auto":
-        return find_node(environ, candidates)
+        return find_node(environ, candidates, root)
     if not isinstance(value, str) or not value.strip():
         raise ValueError("node 必须是 'auto'、绝对路径或可执行命令名；" + NODE_HINT)
     lookup = os.path.expanduser(value.strip())
@@ -102,6 +121,6 @@ def load_config(root=None):
     local_path = base / LOCAL_CONFIG_NAME
     local = read_config_file(local_path) if local_path.is_file() else {}
     merged = merge_config(common, local)
-    merged["node"] = resolve_node(merged.get("node"))
+    merged["node"] = resolve_node(merged.get("node"), root=base)
     merged["credentials_path"] = resolve_credentials_path(merged.get("credentials_path"), base)
     return merged

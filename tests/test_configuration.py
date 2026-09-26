@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 import json
 import os
 from pathlib import Path
@@ -11,7 +15,7 @@ class ConfigurationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
 
     def executable(self, name, directory=None):
         directory = directory or self.root
@@ -26,12 +30,18 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_auto_prefers_local_node24_path(self):
         node = self.executable("node")
-        self.assertEqual(configuration.resolve_node("auto", {"PATH": ""}, candidates=(str(node),)), str(node))
+        self.assertIsNone(configuration.portable_node(self.root))
+        self.assertEqual(
+            configuration.resolve_node("auto", {"PATH": ""}, candidates=(str(node),), root=self.root),
+            str(node))
 
     def test_auto_falls_back_to_path_node(self):
         bindir = self.root / "bin"
         node = self.executable("node", bindir)
-        self.assertEqual(configuration.resolve_node("auto", {"PATH": str(bindir)}, candidates=()), str(node))
+        self.assertIsNone(configuration.portable_node(self.root))
+        self.assertEqual(
+            configuration.resolve_node("auto", {"PATH": str(bindir)}, candidates=(), root=self.root),
+            str(node))
 
     def test_node_keeps_stable_symlink_when_target_version_changes(self):
         current = self.executable("node-v24-old")
@@ -133,6 +143,38 @@ class ConfigurationTests(unittest.TestCase):
     def test_missing_common_config_is_rejected(self):
         with self.assertRaises(ValueError):
             configuration.load_config(self.root)
+
+    def make_portable_node(self, root):
+        node = root / ".portable" / "node" / "bin" / "node"
+        node.parent.mkdir(parents=True, exist_ok=True)
+        node.write_text("#!/bin/sh\n")
+        node.chmod(0o755)
+        return node
+
+    def test_load_config_prefers_project_portable_node(self):
+        self.make_portable_node(self.root)
+        self.write("config.json", {"node": "auto", "credentials_path": "~/.dsh/x.yaml"})
+        config = configuration.load_config(self.root)
+        expected = configuration.portable_node(self.root)
+        self.assertIsNotNone(expected)
+        self.assertEqual(config["node"], expected)
+        self.assertIn(".portable", config["node"])
+
+    def test_explicit_local_node_is_not_replaced_by_portable(self):
+        self.make_portable_node(self.root)
+        explicit = self.executable("custom-node")
+        self.write("config.json", {"node": "auto", "credentials_path": "~/.dsh/x.yaml"})
+        self.write("config.local.json", {"node": str(explicit)})
+        config = configuration.load_config(self.root)
+        self.assertEqual(config["node"], str(explicit))
+        self.assertNotEqual(config["node"], configuration.portable_node(self.root))
+
+    def test_resolve_node_with_root_prefers_portable(self):
+        self.make_portable_node(self.root)
+        expected = configuration.portable_node(self.root)
+        self.assertEqual(
+            configuration.resolve_node("auto", {"PATH": ""}, candidates=(), root=self.root),
+            expected)
 
 
 if __name__ == "__main__":

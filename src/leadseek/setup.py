@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 from . import configuration
+from . import runtime_install
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,16 +65,16 @@ def find_npm(node, environ=None):
 
 
 def write_local_config(root, local, values):
-    """Merge machine overrides into config.local.json, keeping other keys, mode 0600."""
+    """Merge machine overrides into config.local.json, keeping other keys, mode 0600.
+
+    Delegates the actual write to :func:`runtime_install.atomic_write_json`, so
+    both setup paths share the same symlink check, same-directory temp file and
+    0600 handling.  Other keys, including an existing credentials path, stay.
+    """
     merged = dict(local)
     merged.update(values)
     path = Path(root) / configuration.LOCAL_CONFIG_NAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.chmod(temporary, 0o600)
-    temporary.replace(path)
-    os.chmod(path, 0o600)
+    runtime_install.atomic_write_json(path, merged)
     return merged
 
 
@@ -99,6 +100,7 @@ def configure(root=None, node=None, credentials=None, skip_runtime=False, enviro
     python_ok(version_info)
     common = configuration.read_config_file(root / configuration.CONFIG_NAME)
     local_path = root / configuration.LOCAL_CONFIG_NAME
+    runtime_install.reject_unsafe_config_path(local_path)
     local = configuration.read_config_file(local_path) if local_path.is_file() else {}
     effective = configuration.merge_config(common, local)
     if node:
@@ -125,6 +127,13 @@ def configure(root=None, node=None, credentials=None, skip_runtime=False, enviro
     if not skip_runtime:
         run_step([sys.executable, str(root / "bin/setup-runtime")], root, environ)
         steps.append("setup-runtime")
+        # setup-runtime records the actual version/source it reused or installed.
+        if local_path.is_file():
+            merged_local = configuration.read_config_file(local_path)
+    missing = runtime_install.missing_required_packages(root)
+    if missing:
+        raise ValueError("Harness 运行时缺少关键包: " + "、".join(missing)
+                         + "；请检查安装输出，不会自动覆盖或降级")
     run_step([sys.executable, str(root / "bin/install-codex")], root, environ)
     steps.append("install-codex")
 
@@ -142,8 +151,24 @@ def configure(root=None, node=None, credentials=None, skip_runtime=False, enviro
         "doctor": doctor.stdout.strip(),
         "doctor_stderr": doctor.stderr.strip(),
         "doctor_exit_code": doctor.returncode,
-        "runtime_version": "0.1.7-alpha.2",
+        "runtime_version": merged_local.get("runtime_version"),
+        "runtime_recorded_matches": _recorded_matches(merged_local, doctor.stdout),
     }
+
+
+def _recorded_matches(local, doctor_output):
+    """Compare doctor's actual harness version with the recorded local version."""
+    recorded = local.get("runtime_version")
+    if not recorded or str(recorded) == "latest":
+        return True
+    try:
+        health = json.loads(doctor_output)
+    except (TypeError, ValueError):
+        return False
+    actual = health.get("actual") or health.get("harness_version") if isinstance(health, dict) else None
+    if not actual:
+        return False
+    return str(actual).strip().lstrip("v") == str(recorded).strip().lstrip("v")
 
 
 def main(argv=None):
@@ -185,6 +210,12 @@ def main(argv=None):
         print("安装未完成：doctor 的版本或全局入口检查未通过，请按输出修复后重新运行 bin/setup。",
               file=sys.stderr)
         return 1
+    if result.get("runtime_recorded_matches") is False:
+        print("安装未完成：doctor 返回的实际 Harness 版本与 config.local.json 记录不一致，"
+              "请按 doctor 的 expected/actual/version_policy 字段核对。", file=sys.stderr)
+        return 1
+    if result.get("runtime_version"):
+        print("运行时实际版本：" + str(result["runtime_version"]) + "（来源见 config.local.json runtime_source）")
     return 0
 
 

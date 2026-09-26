@@ -1,0 +1,415 @@
+#!/bin/bash
+# Portable bootstrap for macOS (Apple Silicon arm64 and Intel x86_64).
+#
+# It installs the pinned Python 3.12 and Node 24 archives into the project's
+# .portable/ directory.  No Homebrew, no sudo, no system Python and no Git are
+# required.  Every archive is verified against install/runtime-manifest.tsv
+# before it is extracted; unverified content is never executed.
+#
+# Safety rules:
+#   * only macOS (Darwin) is accepted, verified through ``uname -s``;
+#   * .portable, .state, .state/tmp, .state/downloads, archives and download
+#     temp files must never be symbolic links;
+#   * staging happens in a fresh ``mktemp -d`` directory and only directories
+#     created by this run are removed;
+#   * an existing target that was not installed by this tool is never deleted;
+#   * the previous runtime stays in place until the new one passes validation;
+#   * a lock prevents two bootstraps from overwriting each other.
+#
+# Usage: bin/bootstrap [--offline] [--force] [--only python|node] [--help]
+set -u
+
+usage() {
+  cat <<'USAGE'
+用法: bin/bootstrap [--offline] [--force] [--only python|node] [--help]
+
+把固定版本的 Python 与 Node 解压到项目内的 .portable/ 目录：
+  .portable/python/bin/python3
+  .portable/node/bin/node（含 npm）
+
+选项:
+  --offline   只使用 bundled/ 或 .state/downloads/ 中的归档，不联网
+  --force     即使已安装正确版本也重新解压
+  --only X    只安装 python 或 node
+  --help      显示本帮助
+USAGE
+}
+
+OFFLINE=0
+FORCE=0
+ONLY=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --offline) OFFLINE=1 ;;
+    --force) FORCE=1 ;;
+    --only) shift; ONLY="${1:-}" ;;
+    --only=*) ONLY="${1#--only=}" ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+case "$ONLY" in
+  ""|python|node) ;;
+  *) echo "未知组件: $ONLY" >&2; exit 2 ;;
+esac
+
+# ``uname -s``/``uname -m`` are queried separately so a mocked uname in tests
+# can answer per argument.
+OS_NAME="$(uname -s)"
+ARCH="$(uname -m)"
+if [ "$OS_NAME" != "Darwin" ]; then
+  echo "仅支持 macOS（Darwin）；当前系统: $OS_NAME" >&2
+  exit 1
+fi
+case "$ARCH" in
+  arm64|x86_64) ;;
+  *) echo "不支持的架构: $ARCH（仅支持 arm64 与 x86_64）" >&2; exit 1 ;;
+esac
+
+script="$0"
+while [ -L "$script" ]; do
+  dir=$(cd -P "$(dirname "$script")" >/dev/null 2>&1 && pwd)
+  link=$(readlink "$script")
+  case "$link" in
+    /*) script="$link" ;;
+    *) script="$dir/$link" ;;
+  esac
+done
+ROOT=$(cd -P "$(dirname "$script")/.." >/dev/null 2>&1 && pwd)
+MANIFEST="$ROOT/install/runtime-manifest.tsv"
+MARKER=".leadseek-portable"
+LOCK="$ROOT/.state/tmp/portable-install.lock"
+
+if [ ! -f "$MANIFEST" ]; then
+  echo "缺少运行时清单: $MANIFEST" >&2
+  exit 1
+fi
+
+WORK=""
+LOCK_HELD=0
+cleanup() {
+  # Only remove the fresh mktemp directory and the lock this run created.
+  if [ -n "$WORK" ] && [ -d "$WORK" ]; then
+    rm -rf "$WORK"
+  fi
+  if [ "$LOCK_HELD" -eq 1 ] && [ -d "$LOCK" ]; then
+    rm -rf "$LOCK"
+  fi
+}
+trap cleanup EXIT INT TERM HUP
+
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else
+    return 1
+  fi
+}
+
+verify_archive() {
+  path="$1"; expected="$2"
+  actual=$(sha256_of "$path") || {
+    echo "缺少 SHA256 校验工具（shasum/sha256sum/openssl）" >&2
+    return 1
+  }
+  if [ "$actual" != "$expected" ]; then
+    echo "SHA256 校验失败: $path" >&2
+    echo "  期望: $expected" >&2
+    echo "  实际: $actual" >&2
+    return 1
+  fi
+  return 0
+}
+
+manifest_fields() {
+  awk -F '\t' -v c="$1" -v a="$2" '
+    $0 !~ /^#/ && NF >= 6 && $1 == c && $2 == a { print; found=1; exit }
+    END { if (!found) exit 1 }
+  ' "$MANIFEST"
+}
+
+archive_variants() {
+  printf '%s\n' "$1"
+  case "$1" in
+    *%2B*) printf '%s\n' "$(printf '%s' "$1" | sed 's/%2B/+/g')" ;;
+  esac
+  case "$1" in
+    *+*) printf '%s\n' "$(printf '%s' "$1" | sed 's/+/%2B/g')" ;;
+  esac
+}
+
+# Ensure a directory exists without ever following a symlink on itself.
+ensure_dir_safe() {
+  dir="$1"
+  if [ -L "$dir" ]; then
+    echo "拒绝符号链接: $dir" >&2
+    return 1
+  fi
+  if [ ! -d "$dir" ]; then
+    mkdir -p "$dir" || return 1
+  fi
+  if [ -L "$dir" ]; then
+    echo "拒绝符号链接: $dir" >&2
+    return 1
+  fi
+  return 0
+}
+
+find_local_archive() {
+  base="$1"
+  for dir in "$ROOT/bundled" "$ROOT/.state/downloads"; do
+    [ -d "$dir" ] || continue
+    if [ -L "$dir" ]; then
+      echo "拒绝符号链接目录: $dir" >&2
+      return 2
+    fi
+    for name in $(archive_variants "$base"); do
+      candidate="$dir/$name"
+      if [ -L "$candidate" ]; then
+        echo "拒绝符号链接归档: $candidate" >&2
+        return 2
+      fi
+      if [ -f "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+download_archive() {
+  url="$1"; dest="$2"
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "找不到 curl，无法下载；请在联网机器上预置 bundled/ 归档后用 --offline" >&2
+    return 1
+  fi
+  if [ -L "$dest.tmp" ]; then
+    echo "拒绝符号链接: $dest.tmp" >&2
+    return 1
+  fi
+  if [ -L "$dest" ]; then
+    echo "拒绝符号链接: $dest" >&2
+    return 1
+  fi
+  # Progress goes to stderr; stdout is reserved for the resolved archive path
+  # that callers capture with ``archive=$(get_archive ...)``.
+  if ! curl -fL --proto '=https' --tlsv1.2 --connect-timeout 30 -o "$dest.tmp" "$url" >&2; then
+    rm -f "$dest.tmp"
+    return 1
+  fi
+  mv "$dest.tmp" "$dest"
+}
+
+get_archive() {
+  base="$1"; url="$2"; expected="$3"
+  if [ -L "$ROOT/.state" ]; then
+    echo "拒绝符号链接: $ROOT/.state" >&2
+    return 1
+  fi
+  if [ -L "$ROOT/.state/downloads" ]; then
+    echo "拒绝符号链接: $ROOT/.state/downloads" >&2
+    return 1
+  fi
+  local_archive=$(find_local_archive "$base")
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    return 1
+  fi
+  if [ "$rc" -eq 0 ] && [ -n "$local_archive" ]; then
+    verify_archive "$local_archive" "$expected" || return 1
+    printf '%s\n' "$local_archive"
+    return 0
+  fi
+  if [ "$OFFLINE" -eq 1 ]; then
+    echo "离线模式失败: 找不到归档 $base" >&2
+    echo "  已查找: $ROOT/bundled/ 与 $ROOT/.state/downloads/" >&2
+    return 1
+  fi
+  ensure_dir_safe "$ROOT/.state" || return 1
+  ensure_dir_safe "$ROOT/.state/downloads" || return 1
+  cache="$ROOT/.state/downloads/$base"
+  echo "下载固定版本: $url" >&2
+  download_archive "$url" "$cache" || {
+    echo "下载失败: $url" >&2
+    return 1
+  }
+  if ! verify_archive "$cache" "$expected"; then
+    rm -f "$cache"
+    return 1
+  fi
+  printf '%s\n' "$cache"
+  return 0
+}
+
+component_ok() {
+  local component="$1" target="$2" version="$3" actual
+  [ -d "$target" ] || return 1
+  [ -L "$target" ] && return 1
+  case "$component" in
+    python)
+      [ -x "$target/bin/python3" ] || return 1
+      actual=$("$target/bin/python3" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null) || return 1
+      [ "$actual" = "$version" ] || return 1
+      ;;
+    node)
+      [ -x "$target/bin/node" ] || return 1
+      actual=$("$target/bin/node" --version 2>/dev/null) || return 1
+      [ "$actual" = "v$version" ] || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+release_lock() {
+  if [ "$LOCK_HELD" -eq 1 ]; then
+    if [ -d "$LOCK" ]; then
+      rm -rf "$LOCK"
+    fi
+    LOCK_HELD=0
+  fi
+}
+
+# Runs with the install lock held; extracts, validates the new runtime before
+# switching, and atomically replaces only a tool-owned target.
+install_locked() {
+  component="$1"; f_version="$2"; f_basename="$3"; f_url="$4"; f_sha="$5"; target="$6"
+
+  archive=$(get_archive "$f_basename" "$f_url" "$f_sha") || return 1
+
+  WORK=$(mktemp -d "$ROOT/.state/tmp/bootstrap.XXXXXX") || {
+    echo "无法创建临时目录" >&2
+    WORK=""
+    return 1
+  }
+  mkdir -p "$WORK/extract" || return 1
+
+  echo "解压 $(basename "$archive")"
+  if ! tar -xzf "$archive" -C "$WORK/extract"; then
+    echo "解压失败: $archive" >&2
+    return 1
+  fi
+
+  binary=python3
+  [ "$component" = node ] && binary=node
+  content=""
+  if [ -x "$WORK/extract/bin/$binary" ]; then
+    content="$WORK/extract"
+  else
+    for candidate in "$WORK/extract"/*/bin/"$binary"; do
+      [ -x "$candidate" ] || continue
+      content=${candidate%/bin/$binary}
+      break
+    done
+  fi
+  if [ -z "$content" ]; then
+    echo "归档结构异常，未找到 bin/$binary: $archive" >&2
+    return 1
+  fi
+
+  staging="$WORK/staging"
+  mv "$content" "$staging" || return 1
+  printf 'component=%s\nversion=%s\nsha256=%s\n' "$component" "$f_version" "$f_sha" \
+    > "$staging/$MARKER" || return 1
+
+  # Validate the staged runtime before touching the active target.
+  if ! component_ok "$component" "$staging" "$f_version"; then
+    echo "新运行时校验失败，保留原有版本: $archive" >&2
+    return 1
+  fi
+
+  ensure_dir_safe "$ROOT/.portable" || return 1
+
+  if [ -e "$target" ]; then
+    mv "$target" "$WORK/old" || return 1
+  fi
+  if ! mv "$staging" "$target"; then
+    if [ -e "$WORK/old" ]; then
+      mv "$WORK/old" "$target"
+    fi
+    return 1
+  fi
+  if [ -e "$WORK/old" ]; then
+    rm -rf "$WORK/old"
+  fi
+
+  if ! component_ok "$component" "$target" "$f_version"; then
+    echo "安装后校验失败: $target" >&2
+    return 1
+  fi
+  echo "已安装: $target ($f_version)"
+  return 0
+}
+
+install_component() {
+  component="$1"
+  line=$(manifest_fields "$component" "$ARCH")
+  if [ -z "$line" ]; then
+    echo "清单缺少 $component/$ARCH: $MANIFEST" >&2
+    return 1
+  fi
+  IFS=$'\t' read -r _component f_arch f_version f_basename f_url f_sha <<<"$line"
+  target="$ROOT/.portable/$component"
+
+  # Reject symlinks before any version probe or reuse shortcut.
+  if [ -L "$ROOT/.portable" ]; then
+    echo "拒绝符号链接: $ROOT/.portable" >&2
+    return 1
+  fi
+  if [ -L "$target" ]; then
+    echo "拒绝符号链接: $target" >&2
+    return 1
+  fi
+
+  if [ "$FORCE" -eq 0 ] && component_ok "$component" "$target" "$f_version"; then
+    echo "已安装，跳过: $target ($f_version)"
+    return 0
+  fi
+
+  # Never delete a target this tool did not create.
+  if [ -e "$target" ] && [ ! -f "$target/$MARKER" ]; then
+    echo "目标已存在且非本工具安装，拒绝覆盖: $target" >&2
+    return 1
+  fi
+
+  # .state and .state/tmp must not be symlinks at any level before use.
+  ensure_dir_safe "$ROOT/.state" || return 1
+  if [ -L "$ROOT/.state/tmp" ]; then
+    echo "拒绝符号链接: $ROOT/.state/tmp" >&2
+    return 1
+  fi
+  ensure_dir_safe "$ROOT/.state/tmp" || return 1
+
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    echo "另一个 bootstrap 安装正在进行（锁: $LOCK），请稍后重试" >&2
+    return 1
+  fi
+  LOCK_HELD=1
+
+  install_locked "$component" "$f_version" "$f_basename" "$f_url" "$f_sha" "$target"
+  rc=$?
+
+  release_lock
+  if [ -n "$WORK" ] && [ -d "$WORK" ]; then
+    rm -rf "$WORK"
+  fi
+  WORK=""
+  return "$rc"
+}
+
+status=0
+if [ -z "$ONLY" ] || [ "$ONLY" = python ]; then
+  install_component python || status=1
+fi
+if [ "$status" -eq 0 ] && { [ -z "$ONLY" ] || [ "$ONLY" = node ]; }; then
+  install_component node || status=1
+fi
+exit "$status"

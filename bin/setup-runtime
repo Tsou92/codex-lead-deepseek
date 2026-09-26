@@ -1,5 +1,7 @@
+#!/bin/sh
+''''exec "$(d=$0; if [ "${d#*/}" = "$d" ]; then d=./$d; fi; while [ -L "$d" ]; do l=$(readlink "$d"); if [ "${l#/}" != "$l" ]; then d=$l; else d=${d%/*}/$l; fi; done; b=${d%/*}; cd "$b" && pwd)/python" "$0" "$@" # '''
 #!/usr/bin/env python3
-"""Install exactly the reviewed Harness version; never silently upgrade it."""
+"""Reuse an existing Harness, or install the official latest without pinning it."""
 import os
 from pathlib import Path
 import subprocess
@@ -9,13 +11,28 @@ sys.dont_write_bytecode = True
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / "src"))
 from leadseek.configuration import load_config
+from leadseek import runtime_install
 
-RUNTIME_VERSION = "0.1.7-alpha.2"
 
-config = load_config(root)
-node = Path(config["node"])
-env = os.environ.copy()
-env["PATH"] = str(node.parent) + os.pathsep + env.get("PATH", "")
-subprocess.run(["npm", "install", "--prefix", str(root / "runtime"), "--cache", str(root / ".state/npm-cache"),
-                "--no-audit", "--no-fund", "--save-exact", "@deepseek-ai/dsh@" + RUNTIME_VERSION],
-               env=env, check=True)
+def main():
+    config = load_config(root)
+    result = runtime_install.ensure_runtime(root, config["node"], os.environ)
+    runtime_install.record_runtime(root, result)
+    source = result["source"]
+    if source == runtime_install.SOURCE_GLOBAL:
+        print("已按 PATH 中同版本本地接入 Harness " + result["version"]
+              + "（仅本版本，不是升级；未做全局安装）")
+    elif source == runtime_install.SOURCE_EXISTING:
+        print("沿用已有 Harness " + result["version"] + "（不自动升级或降级）")
+    else:
+        print("已安装官方 npm 最新版 Harness " + result["version"])
+    print("运行时来源：" + source + "；api_tested=false（安装成功不代表 API 已验证）")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print("Harness 运行时未就绪：" + str(error), file=sys.stderr)
+        sys.exit(1)

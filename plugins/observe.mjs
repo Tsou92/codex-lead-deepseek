@@ -20,6 +20,8 @@
 import {closeSync, fchmodSync, mkdirSync, openSync, statSync, writeSync} from 'node:fs';
 import {dirname} from 'node:path';
 
+import {normalizeToolResult} from './tool-result.mjs';
+
 export const name = 'leadseek-observe';
 
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
@@ -382,11 +384,15 @@ export function createObserver(config, options = {}) {
         break;
       case 'tool/result': {
         const message = data.message || {};
+        // `message` may be the modern top-level shape or the legacy nested
+        // `source:{kind:'tool'}` shape; the helper hides the difference.
+        const normalized = normalizeToolResult(message);
+        const isError = normalized ? normalized.isError : message.isError === true;
         emit(baseRecord('tool_result', nowFn, session, {
           step_id: `${data.turn}.${data.step}`,
-          call_id: idOf(message.toolCallId),
-          result: extractText(message.content, maxTextChars),
-          status: message.isError ? 'error' : 'ok',
+          call_id: normalized ? normalized.callId : idOf(message.toolCallId),
+          result: extractText(normalized ? normalized.content : message.content, maxTextChars),
+          status: isError ? 'error' : 'ok',
         }));
         break;
       }
