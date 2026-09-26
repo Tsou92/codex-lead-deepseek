@@ -191,6 +191,7 @@ class RunTaskContextTests(unittest.TestCase):
                 mock.patch.object(runner, "ROOT", self.root), \
                 mock.patch.object(runner, "load_config", return_value=CONFIG), \
                 mock.patch.object(runner, "runtime_command", return_value=["true"]), \
+                mock.patch.object(runner.runtime_compat, "probe_headless_mode", return_value="modern"), \
                 mock.patch.object(runner, "prepare"), \
                 mock.patch.object(runner, "reduce_events", return_value=dict(SUCCESSFUL_EVENTS)), \
                 mock.patch.object(runner, "outcome", return_value="completed"), \

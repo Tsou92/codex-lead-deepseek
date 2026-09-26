@@ -5,7 +5,6 @@
  * 兼容 CSP script-src 'self'，无外部依赖。
  */
 (function () {
-  var REFRESH_MS = 5000;
   var EVENTS_PAGE = 100;
   var CODEX_PAGE = 100;
   var RUN_PAGE = 50;
@@ -44,7 +43,6 @@
     detailSig: '',
     detailRunId: null,
     activeTab: 'overview',
-    autoRefresh: true,
     view: 'tasks',
     events: { items: [], consumedOffset: 0, nextCursor: null, hasMore: false, agentId: '', warnings: [], loading: false },
     expandedEvents: {},
@@ -56,7 +54,6 @@
   var seqs = {};
   var eventsSeq = 0;
   var codexSeq = 0;
-  var refreshTimer = null;
   var searchTimer = null;
 
   /* ---------- 基础工具 ---------- */
@@ -1332,7 +1329,7 @@
     var endNo = first + c.items.length;
     var tail = c.mode === 'start'
       ? '（已暂停跟随，可加载更早记录）'
-      : '（自动跟随最新，每5秒刷新）';
+      : '（跟随最新，点顶部“刷新”更新）';
     setText($('codex-status'), '第' + startNo + '-' + endNo + '/' + totalText + '条 公开记录 ' + tail);
   }
 
@@ -1476,10 +1473,10 @@
     }
   }
 
-  /* ---------- 刷新循环 ---------- */
+  /* ---------- 手动刷新 ---------- */
 
   function tick() {
-    if (!state.autoRefresh || state.ticking) return;
+    if (state.ticking) return;
     state.ticking = true;
     refreshCodexIfNeeded();
     loadOverview(false)
@@ -1493,15 +1490,6 @@
       })
       .catch(handleErr)
       .then(function () { state.ticking = false; });
-  }
-
-  function setAutoRefresh(on) {
-    state.autoRefresh = !!on;
-    var btn = $('refresh-toggle');
-    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    btn.textContent = '自动刷新：' + (on ? '开' : '关');
-    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-    if (on) refreshTimer = setInterval(tick, REFRESH_MS);
   }
 
   /* ---------- 事件绑定与启动 ---------- */
@@ -1537,7 +1525,7 @@
       loadOverview(true).catch(handleErr);
     });
     $('load-more-runs').addEventListener('click', loadMoreRuns);
-    $('refresh-toggle').addEventListener('click', function () { setAutoRefresh(!state.autoRefresh); });
+    $('refresh-toggle').addEventListener('click', tick);
     $('error-retry').addEventListener('click', function () {
       hideError();
       loadOverview(true).then(function () {
@@ -1558,7 +1546,6 @@
   function start() {
     bind();
     applyTabState();
-    setAutoRefresh(true);
     loadOverview(true).catch(handleErr);
   }
 

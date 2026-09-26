@@ -5,7 +5,7 @@ description: Codex 统筹、DeepSeek 默认执行。把标准明确且可核验�
 
 # Codex 统筹与 DeepSeek 执行
 
-CLI：`~/.local/bin/leadseek`（该符号链接指向本工具项目根目录下的 `bin/leadseek`）。PATH 中找不到 `leadseek` 时直接使用 `~/.local/bin/leadseek`；全局 AGENTS 规则中也记录了实际路径。
+CLI：`~/.local/bin/leadseek`（该符号链接指向本工具项目根目录下的 `bin/leadseek`）。PATH 中找不到 `leadseek` 时直接使用 `~/.local/bin/leadseek`；全局 AGENTS 规则中也记录了实际路径。无论本工具被克隆或安装到哪个路径，都通过这个全局入口调用，不要在规则或脚本里硬编码当前机器盘符或安装绝对路径。
 任务说明与全部日志存放在该 CLI 符号链接真实项目根目录的 `.state/` 下（即工具项目的 `.state`）。
 
 ## 分工
@@ -20,12 +20,13 @@ Codex 保留需求理解、关键判断、架构与方案、复杂定位、任�
 
 ## 调用流程
 
-1. 首次使用或失败时运行 `leadseek doctor`。不要每个小任务重新安装、搜路径或读实现代码。
-2. 把下面结构的任务 JSON 写入交付目录的 `.state/inbox/`（先创建目录），或经 stdin 交给 CLI。输入限定到所需文件/目录，避免 Codex 先把全部原文读入自己的上下文。
-3. 执行 `leadseek run --task /绝对路径/任务.json`。命令会处理超时、结果筛选和暂存。通过宿主终端的会话句柄等待；不要因为暂时没有 stdout 重复启动。需要看进度时用 `leadseek list` 或 `leadseek status 任务编号`。
-4. 只阅读 CLI 返回的精简 JSON。`worker_report` 是执行者的报告；`completed` 表示进程和范围检查成功，不等于业务正确或测试已由 Codex 验证。Codex 对照验收标准判断：合格则继续；不合格直接运行 `leadseek revise 任务编号 --instruction '具体问题、下一步方向和验收标准'`，沿用上轮暂存成果返工，无需用户介入。一般最多两轮有明确依据的返工；仍失败时 Codex 诊断难点、只接手必要部分并记录原因，之后可继续委派，不能静默转成 GPT 全包。不要盲目重试或放宽权限绕过阻断。
-5. edit 任务检查 `changes.patch`，按需读取暂存文件并独立运行必要检查。通过后运行 `leadseek apply 任务编号 --note '实际验收依据'`，再做项目集成检查。原项目已变化时重新准备或整合，不能强制覆盖。research/process/inspect 合格与否用 route 的 `--action accepted` 或 `--action rejected --run-id 任务编号` 留下简短判断；检索资料必须核对版本和时效，不能由“文档没提及”推断“不支持”。
-6. 自动给出下一项指令并循环上述流程，直到原目标完成。最终给用户结果及实际分工，不用等待用户催促续做。`leadseek audit --workspace /项目路径` 可查看委派、返工、验收和 Codex 接手原因。
+1. 每个 Codex 任务首次启用本 Skill、开始任何执行前，先运行 `~/.local/bin/leadseek activate`（PATH 中有 `leadseek` 也可直接调用）。它会启动并打开带认证的本机监控，自动从 `CODEX_THREAD_ID` 关联当前任务；底层每次调用都会实际运行启动脚本、可能再打开页面，去重只靠本指令“每个任务只运行一次”，所以同一任务的后续 run/revise 不要再执行 activate，服务中断后可重试。命令只回精简、不含 token 的 JSON；失败时返回非零和简短提示，按提示处理，不要读取或转述可能含认证 URL 的原始捕获输出。`--no-open` 只用于验证，不弹浏览器。
+2. 首次使用或失败时运行 `leadseek doctor`。不要每个小任务重新安装、搜路径或读实现代码。
+3. 把下面结构的任务 JSON 写入交付目录的 `.state/inbox/`（先创建目录），或经 stdin 交给 CLI。输入限定到所需文件/目录，避免 Codex 先把全部原文读入自己的上下文。
+4. 执行 `leadseek run --task /绝对路径/任务.json`。命令会处理超时、结果筛选和暂存。通过宿主终端的会话句柄等待；不要因为暂时没有 stdout 重复启动。需要看进度时用 `leadseek list` 或 `leadseek status 任务编号`。
+5. 只阅读 CLI 返回的精简 JSON。`worker_report` 是执行者的报告；`completed` 表示进程和范围检查成功，不等于业务正确或测试已由 Codex 验证。Codex 对照验收标准判断：合格则继续；不合格直接运行 `leadseek revise 任务编号 --instruction '具体问题、下一步方向和验收标准'`，沿用上轮暂存成果返工，无需用户介入。一般最多两轮有明确依据的返工；仍失败时 Codex 诊断难点、只接手必要部分并记录原因，之后可继续委派，不能静默转成 GPT 全包。不要盲目重试或放宽权限绕过阻断。
+6. edit 任务检查 `changes.patch`，按需读取暂存文件并独立运行必要检查。通过后运行 `leadseek apply 任务编号 --note '实际验收依据'`，再做项目集成检查。原项目已变化时重新准备或整合，不能强制覆盖。research/process/inspect 合格与否用 route 的 `--action accepted` 或 `--action rejected --run-id 任务编号` 留下简短判断；检索资料必须核对版本和时效，不能由“文档没提及”推断“不支持”。
+7. 自动给出下一项指令并循环上述流程，直到原目标完成。最终给用户结果及实际分工，不用等待用户催促续做。`leadseek audit --workspace /项目路径` 可查看委派、返工、验收和 Codex 接手原因。
 
 任务格式（JSON；CLI 不接受未声明的字段）：
 

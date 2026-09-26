@@ -14,6 +14,8 @@ import threading
 import uuid
 
 from . import configuration
+from . import runtime_compat
+from . import runtime_install
 from .events import reduce_events
 from .workspace import prepare, collect_changes, carry_revision
 from .journal import record, effective_codex_thread_id
@@ -281,7 +283,6 @@ def run_task(data, previous_run_id=None):
                 carry_revision(run_path(previous_run_id), directory, task)
             write_json(directory / "task.json", task)
             write_context(directory, config, previous_run_id)
-            write_json(directory / "patch.json", patch_for(task, config, directory))
             prompt = build_prompt(task, config)
             (directory / "prompt.txt").write_text(prompt, encoding="utf-8")
             (directory / "tmp").mkdir()
@@ -289,11 +290,21 @@ def run_task(data, previous_run_id=None):
             environment.update({"DSH_HOME": str(STATE / "harness-home"), "DSH_TELEMETRY_DISABLED": "1", "DSH_TELEMETRY_MODE": "DISABLED", "TMPDIR": str(directory / "tmp"), "PYTHONDONTWRITEBYTECODE": "1"})
             environment.pop("DSH_PERMISSION_MODE", None)
             environment["PATH"] = str(Path(config["node"]).parent) + os.pathsep + environment.get("PATH", "")
-            command += ["--profile", "headless", "--patch", str(directory / "patch.json"), "--json"]
+            # Probe the installed headless interface (no model, no task).  The
+            # modern profile keeps --json + stdin; the official latest profile
+            # gets the legacy adapter with the task in patch.json, never argv.
+            headless_mode = runtime_compat.probe_headless_mode(command, directory / "workspace", environment)
+            patch = patch_for(task, config, directory)
+            if headless_mode == runtime_compat.LEGACY:
+                patch = patch + runtime_compat.legacy_patch(ROOT, prompt, directory)
+            write_json(directory / "patch.json", patch)
+            command += runtime_compat.headless_arguments(headless_mode, directory / "patch.json")
             started["status"] = "running"
+            started["headless_mode"] = headless_mode
             write_json(directory / "status.json", started)
             record(ROOT, task["workspace"], "deepseek", "revise" if previous_run_id else "execute", task["goal"][:300], run_id)
-            process = execute_process(command, directory / "workspace", environment, prompt, directory,
+            process = execute_process(command, directory / "workspace", environment,
+                                      runtime_compat.stdin_payload(headless_mode, prompt), directory,
                                       task["timeout_seconds"], config["max_log_bytes"])
             events = reduce_events(directory / "events.jsonl", task["result_max_chars"])
             status = outcome(events, process)
@@ -316,6 +327,7 @@ def run_task(data, previous_run_id=None):
                       "report_truncated": events["final_truncated"], "needs_codex_review": True,
                       "changed_file_count": len(changes), "changed_files": [c["path"] for c in changes[:30]],
                       "files_list_truncated": len(changes) > 30, "scope_violations": violations[:10],
+                      "headless_mode": headless_mode,
                       "session_id": events["session_id"], "turn_reason": events["turn_reason"],
                       "tool_counts": events["tool_counts"], "tool_errors": events["tool_errors"],
                       "errors": events["errors"], "malformed_lines": events["malformed_lines"],
@@ -349,12 +361,15 @@ def revise_task(run_id, instruction):
 
 def doctor():
     config = load_config()
+    common = configuration.read_config_file(ROOT / configuration.CONFIG_NAME)
+    policy = common.get("runtime_version", "latest")
     command = runtime_command(config)
     version = subprocess.run(command + ["--version"], capture_output=True, text=True, timeout=15, check=True).stdout.strip()
+    fields = runtime_install.doctor_version_fields(policy, version, config.get("runtime_version"))
     return {"root": str(ROOT), "harness_version": version,
-            "version_matches": version == config["runtime_version"],
             "credentials_file_exists": Path(config["credentials_path"]).is_file(),
             "model": config["model"], "reasoning_effort": config["reasoning_effort"],
             "skill_linked": (Path.home() / ".codex/skills/deepseek-delegate").resolve() == ROOT / "skill/deepseek-delegate",
             "cli_linked": (Path.home() / ".local/bin/leadseek").resolve() == ROOT / "bin/leadseek",
-            "api_tested_by_doctor": False}
+            "runtime_dependencies": runtime_install.runtime_dependency_status(ROOT),
+            "api_tested_by_doctor": False, **fields}

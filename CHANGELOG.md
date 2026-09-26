@@ -2,6 +2,33 @@
 
 本文只记录发布版本的主要变化；真实验收证据见 [`验证记录.md`](验证记录.md)。
 
+## 1.2.0 — 2026-09-26
+
+### 新增
+
+- 一键跨 Mac 部署：从 Releases/latest 下载 `codex-lead-deepseek-1.2.0-macos.zip`（附 SHA256），解压双击 `一键安装.command` 完成安装与接入。
+- 随包提供经 SHA256 核验的固定 Python 3.12 与 Node 24（Apple Silicon 与 Intel），无需系统预装 Python/Node/Git/gh/Homebrew。
+- Harness 不再随 zip 固定：优先复用已有可用 Harness，其次本地接入 PATH 中的官方 `dsh`，最后从官方 npm 安装 `@deepseek-ai/dsh@latest` 并记录实际版本。
+- TTY 隐藏输入 DeepSeek API key：回车跳过、不覆盖既有 credentials，key 不进入聊天/命令行/环境变量/日志。
+- Skill 每任务首次 activate 时打开监控并关联当前会话，后续步骤不重复。
+
+### 变更
+
+- README 以一键安装为主路径，Git clone 调整为高级可选；新 clone 同样运行 `一键安装.command` 下载依赖。
+- 示例命令由系统 `python3` 改为随包 `./bin/python`，适配无系统 Python 的机器。
+- 监控刷新改为用户手动触发（顶栏刷新按钮），不再定时刷新详情。
+- 更新文档中原“固定 Harness 版本、需先手动装依赖”的说明，改为当前的按需接入策略。
+
+### 修复
+
+- 适配现代与旧版 headless，并完善工具结果的处理与导出。
+
+### 说明
+
+- Codex 应用安装/登录仍由用户按官方页面完成；API 有效性不做自动验证，`doctor` 仅做结构检查。
+- 未签名/未公证安装包被 macOS 拦截时，按系统设置隐私与安全性的“仍要打开”处理，不提供全局关闭 Gatekeeper/xattr 方案。
+- 正式 zip 由 Codex 构建并验收；本版尚未在第二台实体 Mac 或 Intel 上实测。
+
 ## 1.1.0 — 2026-09-25
 
 ### 新增

@@ -1,0 +1,5 @@
+# component	arch	version	basename	url	sha256
+node	arm64	24.21.0	node-v24.21.0-darwin-arm64.tar.gz	https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz	bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057
+node	x86_64	24.21.0	node-v24.21.0-darwin-x64.tar.gz	https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz	1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097
+python	arm64	3.12.14	cpython-3.12.14%2B20260924-aarch64-apple-darwin-install_only_stripped.tar.gz	https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.12.14%2B20260924-aarch64-apple-darwin-install_only_stripped.tar.gz	c2edb321cd32ec2b170df208db0446dccc4398db602ca27cf2079098fb1f7d9d
+python	x86_64	3.12.14	cpython-3.12.14%2B20260924-x86_64-apple-darwin-install_only_stripped.tar.gz	https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.12.14%2B20260924-x86_64-apple-darwin-install_only_stripped.tar.gz	7ea9761b9069c10b9a20531d568645849d604c59e9c7f11f6659f1e1790c968e

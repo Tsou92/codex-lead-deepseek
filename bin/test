@@ -1,3 +1,5 @@
+#!/bin/sh
+''''exec "$(d=$0; if [ "${d#*/}" = "$d" ]; then d=./$d; fi; while [ -L "$d" ]; do l=$(readlink "$d"); if [ "${l#/}" != "$l" ]; then d=$l; else d=${d%/*}/$l; fi; done; b=${d%/*}; cd "$b" && pwd)/python" "$0" "$@" # '''
 #!/usr/bin/env python3
 import os
 from pathlib import Path
@@ -17,3 +19,4 @@ node = load_config(root)["node"]
 subprocess.run([node, str(root / "tests/test_budget.mjs")], cwd=root, env=env, check=True)
 subprocess.run([node, str(root / "tests/test_observe.mjs")], cwd=root, env=env, check=True)
 subprocess.run([node, str(root / "tests/test_monitor_history.mjs")], cwd=root, env=env, check=True)
+subprocess.run([node, "--test", str(root / "tests/test_legacy_headless.mjs")], cwd=root, env=env, check=True)

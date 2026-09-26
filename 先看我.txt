@@ -1,0 +1,64 @@
+Codex-Lead-DeepSeek 快速开始（macOS v1.2.0）
+=====================================
+
+推荐路径（无需预装 Python/Node/Git/gh/Homebrew）
+------------------------------------------------
+支持 macOS 13.5 或更新版本，Apple Silicon 与 Intel。
+1. 用有权限的账号登录 GitHub 私有仓库 Tsou92/codex-lead-deepseek
+   的 Releases/latest 页面，下载
+   codex-lead-deepseek-1.2.0-macos.zip，并核对页面附带的 SHA256。
+2. 解压后双击（或右键“打开”）“一键安装.command”。
+   - 使用随包、经 SHA256 核验的固定 Python 3.12 / Node 24
+     （Apple Silicon 与 Intel 各一份），无需系统预装。
+   - 复制到 ~/Applications/Codex-Lead-DeepSeek
+     （可用 --destination 指定别处）；本机 ~/.local/bin/leadseek
+     已指向当前源码时自动原位复用，保留外置目录，不另建拷贝。
+   - 安装或复用 Harness：已有可用 Harness 沿用；否则 PATH 能定位
+     官方 dsh 则同版本本地接入；都没有才从官方 npm 安装
+     @deepseek-ai/dsh@latest，并记录实际版本（不固定 0.1.7；
+     latest 是官方 dist-tag，不一定等于 alpha 最大号）。
+   - 接入全局 Skill / CLI / 规则。
+   - 终端隐藏输入 DeepSeek API key：回车跳过，不覆盖已有
+     credentials，key 不进入聊天、命令行、环境变量或日志。
+   - 打开认证监控。Skill 每个任务首次 activate 时会打开监控并
+     关联当前会话，后续步骤不重复；裸访问 8765 认证问题请用
+     activate，不要粘贴 token URL。
+3. macOS 首次可能拦截未签名/未公证安装包：到“系统设置 → 隐私与
+   安全性”，对已核对来源的安装包点“仍要打开”。不要全局关闭
+   Gatekeeper，也不要使用 xattr 绕过。
+
+只验证不打开浏览器：
+  ./一键安装.command --no-open --non-interactive
+已有正确运行时、只想重新接入：
+  ./一键安装.command --skip-runtime
+
+安装未就绪时会提示 Codex 官方安装与登录入口。
+本工具不会声称 Codex 已安装，也不会声称 DeepSeek API 已验证；
+doctor 只检查运行时、凭据文件和全局入口。
+向导总结里的凭据“已存在”只表示文件在位，不代表密钥可用；
+没有密钥时显示“待配置”，不会据此断言委派可用。
+
+监控：页面刷新由用户手动触发（顶栏刷新按钮），不定时刷新详情。
+
+隐私边界
+--------
+- ZIP 只包含明确 allowlist 的公开源码、技能、文档和启动入口，
+  不含 Harness。
+- 不打包 .git、.state、.monitor-context、runtime、node_modules、
+  config.local.json、.credentials、.env 或符号链接。
+- 凭据只由用户在终端输入，写入 0600 的新文件，不进入命令行、环境变量或日志。
+- 首次 Harness 安装与 DeepSeek 模型调用需要联网；随包 Python/Node
+  是经 SHA 核验的固定环境，Harness 则按需接入/跟随官方 latest。
+
+高级：源码方式
+--------------
+  gh auth login
+  gh repo clone Tsou92/codex-lead-deepseek
+  cd codex-lead-deepseek
+  ./一键安装.command     # 或已备好系统 Python/Node 时 ./bin/setup
+
+打包（维护者）
+--------------
+  ./bin/python scripts/build-installer.py --with-runtimes
+输出 dist/codex-lead-deepseek-<version>-macos.zip 及 SHA256 清单。
+正式 zip 由 Codex 构建并验收。

@@ -148,6 +148,86 @@ assert.ok(!serialized.includes('HIDDEN-DEVELOPER'));
 assert.ok(!serialized.includes('sk-abcdefghijklmnop'), 'api keys are redacted');
 assert.ok(!serialized.includes('Bearer abcdefghijklmnop'), 'authorization is redacted');
 
+// Legacy nested public tool-result shape (Harness 0.1.5-rc.3): call id and text
+// come from the nested `tool-result` block, not the top-level message.
+{
+  const legacyPath = join(tempDir(), 'legacy.jsonl');
+  const legacyCtx = fakeContext();
+  const legacyObserver = apply(legacyCtx, {telemetryPath: legacyPath, maxTextChars: 2000});
+  const legacyRoot = {id: 'legacy-root', header: {}};
+  const legacyChild = {id: 'legacy-child', header: {parentSession: 'legacy-root', origin: 'subagent', delegationDepth: 1}};
+  legacyCtx.fire('agent/created', {agent: {id: 'legacy-root', session: legacyRoot, options: {model: 'm'}}, source: 'startup'});
+  legacyCtx.fire('agent/created', {agent: {id: 'legacy-child', session: legacyChild, options: {model: 'm'}}, source: 'startup'});
+  legacyCtx.fire('session/event', legacyChild, {
+    type: 'tool/result',
+    data: {
+      turn: 1, step: 1,
+      message: {
+        source: {kind: 'tool', callId: 'call-child'},
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'call-child',
+          content: [
+            {type: 'text', text: 'LEADSEEK_CHILD_OK'},
+            {type: 'reasoning', text: 'HIDDEN-LEGACY-THINKING'},
+          ],
+          isError: false,
+        }],
+        role: 'user',
+        id: 'message-id',
+      },
+    },
+  });
+  legacyCtx.fire('session/event', legacyRoot, {
+    type: 'tool/result',
+    data: {
+      turn: 2, step: 1,
+      message: {
+        source: {kind: 'tool', callId: 'call-parent'},
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'call-parent',
+          content: [{type: 'text', text: 'key sk-abcdefghijklmnop Authorization: Bearer abcdefghijklmnop'}],
+          isError: true,
+        }],
+        role: 'user',
+        id: 'message-id-2',
+      },
+    },
+  });
+  legacyCtx.fire('session/event', legacyRoot, {
+    type: 'tool/result',
+    data: {
+      turn: 2, step: 2,
+      message: {
+        source: {kind: 'tool', callId: 'call-fail'},
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'call-fail',
+          content: [{type: 'text', text: 'x'.repeat(3000)}],
+          isError: true,
+        }],
+      },
+    },
+  });
+  legacyObserver.close();
+
+  const legacyRecords = readRecords(legacyPath).filter(r => r.type === 'tool_result');
+  const childResult = legacyRecords.find(r => r.agent_id === 'legacy-child');
+  assert.equal(childResult.call_id, 'call-child', 'legacy nested call id is captured');
+  assert.equal(childResult.status, 'ok');
+  assert.equal(childResult.result, 'LEADSEEK_CHILD_OK', 'legacy nested public text is visible');
+  const parentResult = legacyRecords.find(r => r.call_id === 'call-parent');
+  assert.equal(parentResult.status, 'error', 'legacy isError:true reports error');
+  assert.ok(!parentResult.result.includes('sk-abcdefghijklmnop'), 'legacy result api key is redacted');
+  assert.ok(!parentResult.result.includes('Bearer abcdefghijklmnop'), 'legacy result authorization is redacted');
+  const failResult = legacyRecords.find(r => r.call_id === 'call-fail');
+  assert.equal(failResult.status, 'error', 'legacy failed tool still reports error');
+  assert.ok(failResult.result.endsWith('…[truncated]'), 'legacy result is truncated');
+  assert.ok(!JSON.stringify(readRecords(legacyPath)).includes('HIDDEN-LEGACY-THINKING'),
+    'hidden legacy reasoning is never recorded');
+}
+
 // Every record carries the five contract base fields.
 for (const record of records) {
   for (const field of ['timestamp', 'type', 'agent_id', 'parent_id', 'session_id']) {
