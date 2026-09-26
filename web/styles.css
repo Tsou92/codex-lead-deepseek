@@ -101,7 +101,6 @@ code, pre, .mono, .run-id, .codex-thread, .event-pre, .diff, .artifact-out, .kv-
 .btn-small { font-size: 11px; padding: 2px 7px; }
 .refresh-toggle { background: #fff; color: var(--primary); border-color: var(--line); }
 .refresh-toggle:hover { background: var(--panel-alt); }
-.refresh-toggle[aria-pressed="false"] { color: var(--muted); }
 
 .counters { display: flex; flex-wrap: wrap; gap: 6px; }
 .count-item {
