@@ -9,7 +9,11 @@
   "result_max_chars": 2500,
   "max_log_bytes": 33554432,
   "max_parallel_runs": 2,
-  "max_tool_calls": 32,
-  "max_search_calls": 3,
-  "max_fetch_calls": 5
+  "max_tool_calls": 40,
+  "max_search_calls": 6,
+  "max_fetch_calls": 10,
+  "fetch_max_output_chars": 16000,
+  "search_max_results": 5,
+  "search_max_queries": 3,
+  "subagent_max_tokens": 8192
 }
