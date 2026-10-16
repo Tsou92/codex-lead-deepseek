@@ -2,6 +2,8 @@
 
 当前源码默认 `execution_backend=desktop`，连接 DSH.app 正在使用的本机后台，不启动独立 headless Harness，不覆盖桌面配置。
 
+桌面模式与旧兼容模式共用本仓库已有的 Ponytail 七步最小实现规则：先判断必要性，再依次考虑复用、标准库、原生特性、已有依赖、单行解和最小实现。Codex 侧保留精简上下文、goal 仅写目标和按差异验收等 token 管控规则。
+
 ## 日常使用
 
 在 Codex 中启用 `deepseek-delegate` Skill 并说明需求即可。Codex 自动拆解任务、委派、读取结果、审核、返工与应用改动。监控入口仍为 `leadseek activate`，同一 Codex 任务不会反复打开监控，页面保留手动刷新。

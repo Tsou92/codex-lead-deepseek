@@ -9,6 +9,25 @@
 - DSH 未运行时自动打开正常客户端并等待就绪，已有服务直接复用；不静默回退到独立 Harness。
 - 继承桌面模型、思考强度、预设和已启用插件，由 DSH 按需使用子 agent/智能体团队；保留 Codex 审核、返工与 apply 闭环。
 - 桌面安装分支不再安装另一套 Harness，不重复读取或配置密钥。旧 v1.2.0 ZIP 不含此改造。
+- 合入主分支已有的 Ponytail 七步最小实现与 Codex token 管控规则，桌面和旧兼容模式共用执行规则；保留主分支可配置的预算参数。
+
+## 1.3.0 — 2026-09-27
+
+### 新增
+
+- 集成 ponytail 最小实现决策梯：DeepSeek 执行端 prompt 新增七步实现原则（YAGNI → 复用 → 标准库 → 原生特性 → 已装依赖 → 单行解 → 最小实现），edit 模式强制执行，减少不必要的库引入和代码膨胀。
+- Skill 新增「Codex 侧 token 管控」章节：明确"下发前不读文件进上下文"、"goal 只写目标"、"验收只看 patch"等规则，从 Codex 端减少 token 消耗。
+
+### 变更
+
+- DeepSeek 工具预算从 32/3/5 放宽至 40/6/10（max_tool_calls / max_search_calls / max_fetch_calls），降低任务中途 BLOCKED 的概率。
+- 子代理 maxTokens 从 4096 提升至 8192，避免复杂子任务被截断。
+- `config.json` 新增四个可覆盖配置项：`fetch_max_output_chars`（默认 16000）、`search_max_results`（默认 5）、`search_max_queries`（默认 3）、`subagent_max_tokens`（默认 8192）；所有参数均可在 `config.local.json` 中按需覆盖。
+- `patch_for()` 里 web 工具参数和子代理 maxTokens 全部改为从 config 读取，不再硬编码。
+
+### 修复
+
+- `build_prompt()` 中 budget_text 的 `fetchMaxOutputChars` 硬编码为 16000，与实际 Harness 配置不同步；现改为读取 `config["fetch_max_output_chars"]`。
 
 ## 1.2.0 — 2026-09-26
 

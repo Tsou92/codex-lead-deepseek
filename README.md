@@ -2,7 +2,7 @@
 
 Codex 统筹、DeepSeek 执行的本地工具。Codex 负责需求、架构、拆解和最终验收，把标准明确且可核验的执行工作交给 DeepSeek Harness。
 
-**当前源码默认连接桌面 DSH 的同一个后台进程**，创建原生会话，继承桌面模型、思考强度、Agent 预设和已启用插件；通过本机 HTTP 直接读写会话，日常不使用截图或 Computer Use。DSH 未启动时自动打开 DSH.app，已有服务直接复用。详见 [桌面同进程模式](docs/desktop-mode.md)。此改造尚未重新打包发布；下文 v1.2.0 下载包说明属于旧版独立 Harness 流程，旧包不包含新功能。
+**当前源码默认连接桌面 DSH 的同一个后台进程**，创建原生会话，继承桌面模型、思考强度、Agent 预设和已启用插件；通过本机 HTTP 直接读写会话，日常不使用截图或 Computer Use。DSH 未启动时自动打开 DSH.app，已有服务直接复用。详见 [桌面同进程模式](docs/desktop-mode.md)。此改造尚未重新打包发布；下文已发布安装包说明属于旧版独立 Harness 流程，旧包不包含新功能。
 
 更完整的命令与机制说明见 [`使用说明.md`](使用说明.md)，真实执行记录见 [`验证记录.md`](验证记录.md)。
 
@@ -17,7 +17,7 @@ Codex 统筹、DeepSeek 执行的本地工具。Codex 负责需求、架构、�
 
 支持 macOS 13.5 或更新版本，Apple Silicon 与 Intel。
 
-1. 用有仓库访问权限的账号登录 GitHub，打开[最新版安装包](https://github.com/Tsou92/codex-lead-deepseek/releases/latest)。
+1. 打开[最新版安装包](https://github.com/Tsou92/codex-lead-deepseek/releases/latest)。
 2. 下载 `codex-lead-deepseek-1.2.0-macos.zip`，核对页面附带的 SHA256，然后解压。
 3. 双击 `一键安装.command`（若被拦截，先右键“打开”）。脚本会自动：
    - 使用随包、经 SHA256 核验的固定 Python 3.12 与 Node 24（Apple Silicon 和 Intel 各一份），不要求系统预装；
@@ -42,7 +42,7 @@ zip **不含** Harness，按以下顺序接入：
 
 ## 高级：从 Git 克隆（可选）
 
-需要源码开发或自定义时才走这条路；普通安装请用上面的一键流程。先 `gh auth login`，再 `gh repo clone Tsou92/codex-lead-deepseek`，进入仓库目录后同样双击/运行 `一键安装.command` 下载依赖并接入。只有确认系统已备好 Python 3.9+、Node 24+、npm 时，才可改用 `./bin/setup`（它不自动安装系统依赖）。
+需要源码开发或自定义时才走这条路；普通安装请用上面的一键流程。运行 `gh repo clone Tsou92/codex-lead-deepseek`，进入仓库目录后同样双击/运行 `一键安装.command` 下载依赖并接入。只有确认系统已备好 Python 3.9+、Node 24+、npm 时，才可改用 `./bin/setup`（它不自动安装系统依赖）。
 
 ## 配置本机凭据
 

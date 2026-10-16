@@ -988,6 +988,15 @@ class ExecuteTests(_Case):
         self.assertEqual(contract["write_paths"], ["tests/test_desktop.py"])
         self.assertIsNone(contract["subagents"])
 
+    def test_ponytail_policy_is_kept_in_both_execution_backends(self):
+        from leadseek.runner import build_prompt as headless_prompt
+        task = self.make_task()
+        config = {"max_tool_calls": 40, "max_search_calls": 6, "max_fetch_calls": 10}
+        for prompt in (build_prompt(task, self.stage), headless_prompt(task, config)):
+            position = prompt.index("实现决策原则（edit 模式必须遵守")
+            for principle in ("YAGNI", "直接用，不重复造轮子", "用标准库", "用原生", "用现有依赖", "就写一行", "只写恰好够用的最小实现"):
+                position = prompt.index(principle, position) + len(principle)
+
     def test_no_headless_process_no_real_desktop_and_single_client(self):
         fake = FakeDesktop([self.finished_poll()])
         self.run_execute(fake)

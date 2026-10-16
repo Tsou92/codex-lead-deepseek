@@ -17,7 +17,28 @@ Codex 保留需求理解、方案、关键判断、任务拆解、审核和最�
 
 日常下发、进度查询、记录和结果读取全部通过 CLI 与本机 HTTP 接口完成，不使用 Computer Use、不截图、不模拟点击。原生 DSH 会话和本机监控可供用户随时查看。
 
-## 执行闭环
+## Codex 侧 token 管控
+
+以下规则直接减少 Codex 自身的 token 消耗，必须严格执行：
+
+**下发前不读文件进上下文。** 构造任务时只需确认文件/目录的存在，不要用 read_file、cat 或任何工具把文件内容读入 Codex 上下文再委派——内容会随文件路径一起复制到暂存区，执行端会读它。唯一例外：结果验收阶段需要 Codex 审核 `changes.patch` 或极短的关键接口。
+
+**goal 写目标与验收标准，不写文件内容。** 不要把被修改文件的当前内容、完整日志或大段背景粘进 goal；把必要背景放进 constraints（只写约束规则，不贴原文），文件用 read_paths 传递。
+
+**Ponytail 最小实现决策梯（edit 任务强制执行，按顺序判断）。** Codex 在拆解任务时必须先走这个梯，并在 constraints 里显式告知 DeepSeek：
+1. 这个功能真的需要存在吗？不需要就不委派（YAGNI）。
+2. 代码库里已有可复用实现？在 constraints 里注明，让 DeepSeek 复用。
+3. 标准库或语言内置能覆盖？在 constraints 里注明，禁止引入外部依赖。
+4. 平台原生特性能满足？在 constraints 里注明（例如：用 `<input type="date">` 而非日期选择库）。
+5. 已安装依赖能处理？在 constraints 里注明，禁止新增包。
+6. 能用一行解决？constraints 写”单行实现即可”。
+7. 以上都不满足：constraints 写”只写恰好够用的最小实现，不加预留抽象”。
+
+**验收精简。** 阅读 `worker_report` 和 `changes.patch` 即可验收常规任务；不要重新把暂存文件全量读入上下文逐行检查，除非 patch 本身显示异常。
+
+**不重复路由记录。** `leadseek route` 只在首次实质执行前调用一次；后续 revise/apply 循环不重复调用。
+
+## 调用流程
 
 1. 每个 Codex 任务首次启用时运行一次 `leadseek activate`，打开认证监控并关联当前 `CODEX_THREAD_ID`；同一任务后续 run/revise 不重复弹页。认证信息不回显。`doctor` 可读取桌面连接状态，但不调用模型；桌面未启动时可直接 run，由其自动启动。
 2. 首次实质执行前用 `leadseek route --workspace /项目路径 --owner codex --action plan --reason '具体分工'` 留痕。Codex 直接实现仅限复杂关键部分、少量集成或委派开销明显更高的微小改动，并说明具体原因。

@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from .codex_sessions import redact_text, sanitize
+from .prompts import MINIMAL_IMPLEMENTATION_RULES
 
 
 def server_identity(url):
@@ -276,7 +277,8 @@ def build_prompt(task, stage):
         "普通可逆选择自主处理，真正缺少信息时说明阻塞。必须等待所有子 agent 完成后交付。"
         "subagents 为 null 表示完全沿用 DSH 的自动子代理策略；只有明确给出整数时才限制启动数量。"
         "隐藏推理不回传；最终中文报告做了什么、文件或来源、实际检查和剩余问题。"
-        "process 模式只返回所需成品；不得虚构完成或测试通过。\n任务：\n"
+        "process 模式只返回所需成品；不得虚构完成或测试通过。\n"
+        + MINIMAL_IMPLEMENTATION_RULES + "任务：\n"
         + json.dumps({k: task[k] for k in ("goal", "mode", "read_paths", "write_paths", "constraints", "checks", "subagents")}, ensure_ascii=False, indent=2)
     )
 
