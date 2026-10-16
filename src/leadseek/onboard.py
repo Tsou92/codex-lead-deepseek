@@ -5,7 +5,9 @@ Python/Node and bundled runtime archives when present, runs ``bin/setup`` and
 finally ``bin/leadseek activate``.  The DeepSeek key is only ever read from the
 user's own TTY with :func:`getpass` and written straight to a new 0600 file; it
 is never passed on a command line, through the environment, to stdout or into
-a log.
+a log.  With ``execution_backend`` set to ``desktop`` the credentials, models
+and plugins belong to the desktop DSH, so the wizard neither reads nor creates
+any authentication material and never picks a Node runtime on its own.
 """
 
 from __future__ import annotations
@@ -190,13 +192,26 @@ def copy_portable_runtime(source, dest):
     return copied
 
 
-def credentials_path_for(root):
+def resolve_backend(config):
+    return configuration.resolve_backend(config)
+
+
+def effective_config(root):
+    """Read ``config.json`` plus the optional local override, without resolving node.
+
+    Node resolution is deliberately skipped: desktop mode must stay readable on
+    a machine where no Node/DSH runtime exists.
+    """
     root = Path(root)
     common = configuration.read_config_file(root / configuration.CONFIG_NAME)
     local_path = root / configuration.LOCAL_CONFIG_NAME
     local = configuration.read_config_file(local_path) if local_path.is_file() else {}
-    merged = configuration.merge_config(common, local)
-    return configuration.resolve_credentials_path(merged.get("credentials_path"), root)
+    return configuration.merge_config(common, local)
+
+
+def credentials_path_for(root):
+    merged = effective_config(root)
+    return configuration.resolve_credentials_path(merged.get("credentials_path"), Path(root))
 
 
 def write_credentials(path, key):
@@ -306,11 +321,28 @@ def onboard(source=None, destination=None, in_place=False, node=None,
         result["portable"] = copy_portable_runtime(source, install_root)
         result["mode"] = mode
 
+    try:
+        backend = resolve_backend(effective_config(install_root))
+    except (OSError, ValueError) as error:
+        result["ok"] = False
+        result["setup_error"] = "无法确定执行后端，已停止安装且未读取凭据: " + str(error)
+        return result
+    result["execution_backend"] = backend
+    if backend == "desktop":
+        # Credentials, models and plugins are owned by the desktop DSH; this
+        # wizard must not read, create or touch any authentication material on
+        # any return path, including an early setup failure below.
+        result["credentials"] = "managed-by-desktop"
+        result["credentials_path"] = None
+        result["warnings"].append(
+            "桌面模式凭据与模型沿用桌面 DSH 的现有配置：本向导未读取、未创建、未修改任何认证材料。")
+
     python = resolve_python(install_root, python_executable)
     # Point setup at the copied portable Node only when the install root is a
     # real copy; when it is the source checkout itself we must not hand setup a
     # runtime directory it may move or delete, so an explicit --node wins.
-    if Path(install_root).resolve() == source:
+    # Desktop mode never auto-selects a runtime; only an explicit --node travels.
+    if backend == "desktop" or Path(install_root).resolve() == source:
         chosen_node = node
     else:
         chosen_node = node or _portable_node(install_root)
@@ -325,29 +357,34 @@ def onboard(source=None, destination=None, in_place=False, node=None,
     result["setup_exit_code"] = completed.returncode
     if completed.returncode != 0:
         result["ok"] = False
-        result["setup_error"] = ("setup 未通过（退出码 %d），已停止后续凭据与 activate 步骤；"
-                                 "输出已省略以免泄露本机信息。" % completed.returncode)
+        # Desktop mode has no credential step at all, so it must not claim one
+        # was stopped; the headless wording stays byte-identical.
+        stopped = ("已停止后续 activate 步骤" if backend == "desktop"
+                   else "已停止后续凭据与 activate 步骤")
+        result["setup_error"] = ("setup 未通过（退出码 %d），%s；输出已省略以免泄露本机信息。"
+                                 % (completed.returncode, stopped))
         return result
 
-    try:
-        credentials_path = credentials_path_for(install_root)
-    except (OSError, ValueError) as error:
-        credentials_path = None
-        result["warnings"].append("无法确定凭据路径: " + str(error))
-    if credentials_path:
-        result["credentials_path"] = credentials_path
-        if Path(credentials_path).is_file():
-            result["credentials"] = "exists"
-        elif non_interactive or not _isatty(stdin):
-            result["credentials"] = "pending"
-            result["warnings"].append("非交互终端未读取 API key，安装后可重新运行本向导配置。")
-        else:
-            key = (prompter or default_prompter)()
-            if not key:
-                result["credentials"] = "pending-skipped"
+    if backend != "desktop":
+        try:
+            credentials_path = credentials_path_for(install_root)
+        except (OSError, ValueError) as error:
+            credentials_path = None
+            result["warnings"].append("无法确定凭据路径: " + str(error))
+        if credentials_path:
+            result["credentials_path"] = credentials_path
+            if Path(credentials_path).is_file():
+                result["credentials"] = "exists"
+            elif non_interactive or not _isatty(stdin):
+                result["credentials"] = "pending"
+                result["warnings"].append("非交互终端未读取 API key，安装后可重新运行本向导配置。")
             else:
-                write_credentials(credentials_path, key)
-                result["credentials"] = "created"
+                key = (prompter or default_prompter)()
+                if not key:
+                    result["credentials"] = "pending-skipped"
+                else:
+                    write_credentials(credentials_path, key)
+                    result["credentials"] = "created"
 
     activate_command = [python, str(install_root / "bin" / "leadseek"), "activate"]
     if no_open:
@@ -369,17 +406,24 @@ def codex_app_installed(home=None):
 
 def summary_lines(result, home=None):
     status = result.get("credentials")
+    desktop = result.get("execution_backend") == "desktop" or status == "managed-by-desktop"
     labels = {
         "exists": "凭据文件已存在（未读取、未改动，不代表 API 已验证）",
         "created": "已新建 0600 凭据文件（不代表 API 已验证）",
         "pending": "待配置（非交互，未读取密钥）",
         "pending-skipped": "待配置（已跳过输入）",
+        "managed-by-desktop": "沿用桌面 DSH 配置（未读取、未创建、未修改）",
     }
     setup_ok = result.get("ok") and "setup" in result.get("steps", [])
     activate_ok = result.get("activate_exit_code") == 0
+    if desktop:
+        connect_line = "[2/3] 桌面接入与链接：" + (
+            "setup 完成（桌面接入、全局 CLI 与 Skill 链接已就绪）" if setup_ok else "setup 未完成")
+    else:
+        connect_line = "[2/3] 运行时与接入：" + ("setup 完成（含 doctor 自检）" if setup_ok else "setup 未完成")
     lines = [
         "[1/3] 安装位置：" + result["install_root"] + "（%s）" % result.get("mode", "未知"),
-        "[2/3] 运行时与接入：" + ("setup 完成（含 doctor 自检）" if setup_ok else "setup 未完成"),
+        connect_line,
         "[3/3] 凭据与激活：" + labels.get(status, "待配置")
         + "；activate " + ("完成" if activate_ok else "未成功"),
     ]
@@ -397,6 +441,8 @@ def summary_lines(result, home=None):
     lines.append("- doctor 只确认安装结构，未验证 DeepSeek API。")
     if status in ("exists", "created"):
         lines.append("- 凭据文件已就位（仅表示文件存在，未验证密钥有效）。")
+    elif desktop:
+        lines.append("- 凭据、模型与插件由桌面 DSH 管理，本向导未创建或修改认证材料。")
     else:
         lines.append("- 尚未配置 DeepSeek API key，委派功能未就绪；可重新运行本安装器配置。")
     if not codex_app_installed(home):

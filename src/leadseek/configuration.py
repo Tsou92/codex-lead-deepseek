@@ -64,6 +64,16 @@ def merge_config(base, override):
     return merged
 
 
+def resolve_backend(config):
+    """Old configs may omit the backend; explicit invalid values never fall back."""
+    value = config.get("execution_backend") if isinstance(config, dict) else None
+    if value is None:
+        return "headless"
+    if isinstance(value, str) and value.strip().lower() in {"desktop", "headless"}:
+        return value.strip().lower()
+    raise ValueError("execution_backend 只能是 desktop 或 headless；未回退到其他运行时")
+
+
 def find_node(environ=None, candidates=NODE24_CANDIDATES, root=None):
     """Prefer the project portable Node, then local Node 24 paths, then PATH."""
     environ = os.environ if environ is None else environ
@@ -121,6 +131,13 @@ def load_config(root=None):
     local_path = base / LOCAL_CONFIG_NAME
     local = read_config_file(local_path) if local_path.is_file() else {}
     merged = merge_config(common, local)
-    merged["node"] = resolve_node(merged.get("node"), root=base)
+    merged["execution_backend"] = resolve_backend(merged)
+    try:
+        merged["node"] = resolve_node(merged.get("node"), root=base)
+    except ValueError:
+        if merged.get("execution_backend", "headless") != "desktop":
+            raise
+        # A native desktop connection uses stdlib HTTP, not another Node/DSH.
+        merged["node"] = None
     merged["credentials_path"] = resolve_credentials_path(merged.get("credentials_path"), base)
     return merged
