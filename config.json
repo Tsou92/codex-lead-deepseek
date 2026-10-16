@@ -1,4 +1,7 @@
 {
+  "execution_backend": "desktop",
+  "desktop_url": "http://127.0.0.1:3080",
+  "desktop_auto_start": true,
   "runtime_version": "latest",
   "node": "auto",
   "credentials_path": "~/.dsh/.credentials.yaml",

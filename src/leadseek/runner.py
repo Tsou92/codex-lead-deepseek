@@ -16,6 +16,7 @@ import uuid
 from . import configuration
 from . import runtime_compat
 from . import runtime_install
+from . import desktop
 from .events import reduce_events
 from .workspace import prepare, collect_changes, carry_revision
 from .journal import record, effective_codex_thread_id
@@ -100,8 +101,12 @@ def task_from_json(data, config):
         raise ValueError("只读任务不能声明 write_paths")
     if task["mode"] == "inspect" and not task["read_paths"]:
         raise ValueError("inspect 模式必须声明 read_paths")
+    native = config.get("execution_backend", "headless") == "desktop"
+    task.setdefault("subagents", None if native else 0)
+    if not (native and task["subagents"] is None):
+        if type(task["subagents"]) is not int or not 0 <= task["subagents"] <= (64 if native else 3):
+            raise ValueError("subagents 必须是允许的非负整数；桌面模式可省略以沿用自动委派")
     for key, default, minimum, maximum in (
-        ("subagents", 0, 0, 3),
         ("timeout_seconds", config["timeout_seconds"], 10, 1800),
         ("result_max_chars", config["result_max_chars"], 200, 12000),
     ):
@@ -270,7 +275,10 @@ def outcome(events, process):
 def run_task(data, previous_run_id=None):
     config = load_config()
     task = task_from_json(data, config)
-    command = runtime_command(config)
+    backend = config.get("execution_backend", "headless")
+    if backend not in {"desktop", "headless"}:
+        raise ValueError("execution_backend 只能是 desktop 或 headless")
+    command = runtime_command(config) if backend == "headless" else None
     with capacity(config["max_parallel_runs"]):
         run_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
         directory = STATE / "runs" / run_id
@@ -283,29 +291,30 @@ def run_task(data, previous_run_id=None):
                 carry_revision(run_path(previous_run_id), directory, task)
             write_json(directory / "task.json", task)
             write_context(directory, config, previous_run_id)
-            prompt = build_prompt(task, config)
-            (directory / "prompt.txt").write_text(prompt, encoding="utf-8")
             (directory / "tmp").mkdir()
-            environment = os.environ.copy()
-            environment.update({"DSH_HOME": str(STATE / "harness-home"), "DSH_TELEMETRY_DISABLED": "1", "DSH_TELEMETRY_MODE": "DISABLED", "TMPDIR": str(directory / "tmp"), "PYTHONDONTWRITEBYTECODE": "1"})
-            environment.pop("DSH_PERMISSION_MODE", None)
-            environment["PATH"] = str(Path(config["node"]).parent) + os.pathsep + environment.get("PATH", "")
-            # Probe the installed headless interface (no model, no task).  The
-            # modern profile keeps --json + stdin; the official latest profile
-            # gets the legacy adapter with the task in patch.json, never argv.
-            headless_mode = runtime_compat.probe_headless_mode(command, directory / "workspace", environment)
-            patch = patch_for(task, config, directory)
-            if headless_mode == runtime_compat.LEGACY:
-                patch = patch + runtime_compat.legacy_patch(ROOT, prompt, directory)
-            write_json(directory / "patch.json", patch)
-            command += runtime_compat.headless_arguments(headless_mode, directory / "patch.json")
             started["status"] = "running"
-            started["headless_mode"] = headless_mode
+            started["execution_backend"] = backend
             write_json(directory / "status.json", started)
             record(ROOT, task["workspace"], "deepseek", "revise" if previous_run_id else "execute", task["goal"][:300], run_id)
-            process = execute_process(command, directory / "workspace", environment,
-                                      runtime_compat.stdin_payload(headless_mode, prompt), directory,
-                                      task["timeout_seconds"], config["max_log_bytes"])
+            if backend == "desktop":
+                headless_mode = "desktop-api"
+                process = desktop.execute(task, config, directory)
+            else:
+                prompt = build_prompt(task, config)
+                (directory / "prompt.txt").write_text(prompt, encoding="utf-8")
+                environment = os.environ.copy()
+                environment.update({"DSH_HOME": str(STATE / "harness-home"), "DSH_TELEMETRY_DISABLED": "1", "DSH_TELEMETRY_MODE": "DISABLED", "TMPDIR": str(directory / "tmp"), "PYTHONDONTWRITEBYTECODE": "1"})
+                environment.pop("DSH_PERMISSION_MODE", None)
+                environment["PATH"] = str(Path(config["node"]).parent) + os.pathsep + environment.get("PATH", "")
+                headless_mode = runtime_compat.probe_headless_mode(command, directory / "workspace", environment)
+                patch = patch_for(task, config, directory)
+                if headless_mode == runtime_compat.LEGACY:
+                    patch = patch + runtime_compat.legacy_patch(ROOT, prompt, directory)
+                write_json(directory / "patch.json", patch)
+                command += runtime_compat.headless_arguments(headless_mode, directory / "patch.json")
+                process = execute_process(command, directory / "workspace", environment,
+                                          runtime_compat.stdin_payload(headless_mode, prompt), directory,
+                                          task["timeout_seconds"], config["max_log_bytes"])
             events = reduce_events(directory / "events.jsonl", task["result_max_chars"])
             status = outcome(events, process)
             budget_file = directory / "budget.json"
@@ -340,10 +349,13 @@ def run_task(data, previous_run_id=None):
             write_json(directory / "status.json", {**started, "status": status, "finished_at": now()})
             record(ROOT, task["workspace"], "deepseek", "worker_result", "执行状态：" + status + "；仍需 Codex 验收。", run_id)
             return result
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            result = {"run_id": run_id, "status": "failed", "error": str(error), "artifacts": str(directory)}
+        except (OSError, ValueError, subprocess.SubprocessError, KeyboardInterrupt) as error:
+            status = "cancelled" if isinstance(error, KeyboardInterrupt) else "failed"
+            result = {"run_id": run_id, "status": status, "error": str(error), "artifacts": str(directory)}
+            if backend == "desktop" and (directory / "desktop.json").is_file():
+                result.update(json.loads((directory / "desktop.json").read_text(encoding="utf-8")))
             write_json(directory / "result.json", result)
-            write_json(directory / "status.json", {**started, "status": "failed", "finished_at": now()})
+            write_json(directory / "status.json", {**started, "status": status, "finished_at": now()})
             return result
 
 
@@ -361,6 +373,27 @@ def revise_task(run_id, instruction):
 
 def doctor():
     config = load_config()
+    if config.get("execution_backend", "headless") == "desktop":
+        from .desktop_client import DesktopClient, normalize_url
+        from .desktop_start import listener_present
+        url = normalize_url(config.get("desktop_url", "http://127.0.0.1:3080"))
+        result = {"root": str(ROOT), "execution_backend": "desktop", "server_url": url,
+                  "api_tested_by_doctor": False, "plugin_policy": "inherit-desktop",
+                  "subagents": "desktop-auto", "connection": "pending-start", "server_pid": None,
+                  "skill_linked": (Path.home() / ".codex/skills/deepseek-delegate").resolve() == ROOT / "skill/deepseek-delegate",
+                  "cli_linked": (Path.home() / ".local/bin/leadseek").resolve() == ROOT / "bin/leadseek",
+                  "desktop_app_installed": any((base / "DSH.app").is_dir() for base in
+                                                (Path("/Applications"), Path.home() / "Applications"))}
+        try:
+            identity = desktop.server_identity(url)
+        except ValueError:
+            if listener_present(url):
+                raise
+            return result
+        with DesktopClient(url=url, log_path=config.get("desktop_log_path")) as client:
+            catalog = client.rpc("session/modelCatalog")
+        return {**result, **identity, "connection": "connected", "desktop_app_installed": True,
+                "model_selection": catalog.get("default")}
     common = configuration.read_config_file(ROOT / configuration.CONFIG_NAME)
     policy = common.get("runtime_version", "latest")
     command = runtime_command(config)

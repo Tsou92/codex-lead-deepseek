@@ -4,6 +4,5 @@
   "mode": "inspect",
   "read_paths": [
     "math_utils.py"
-  ],
-  "subagents": 0
+  ]
 }
