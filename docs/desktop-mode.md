@@ -1,6 +1,6 @@
 # 桌面 DSH 同进程模式
 
-当前源码默认 `execution_backend=desktop`，连接 DSH.app 正在使用的本机后台，不启动独立 headless Harness，不覆盖桌面配置。
+20261016 发布版默认 `execution_backend=desktop`，连接 DSH.app 正在使用的本机后台，不启动独立 headless Harness，不覆盖桌面配置。
 
 桌面模式与旧兼容模式共用本仓库已有的 Ponytail 七步最小实现规则：先判断必要性，再依次考虑复用、标准库、原生特性、已有依赖、单行解和最小实现。Codex 侧保留精简上下文、goal 仅写目标和按差异验收等 token 管控规则。
 
